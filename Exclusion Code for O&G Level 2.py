@@ -6,7 +6,9 @@ def load_data(file):
     df = pd.read_excel(file, sheet_name="GCEL 2024")
     return df
 
-def filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, power_prod_threshold_mt, capacity_threshold, exclude_mining, exclude_power, exclude_services):
+def filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, power_prod_threshold_mt, capacity_threshold,
+                      exclude_mining, exclude_power, exclude_services,
+                      exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod, exclude_power_prod_mt, exclude_capacity, exclude_services_rev):
     """Apply exclusion criteria to filter companies based on selected sectors and thresholds."""
     exclusion_reasons = []
     exclusion_flags = []
@@ -38,23 +40,23 @@ def filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_thres
         
         # Apply thresholds based on selected sectors
         if is_mining and exclude_mining:
-            if coal_rev > mining_rev_threshold:
+            if exclude_mining_rev and coal_rev > mining_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev}% > {mining_rev_threshold}% (Mining)")
-            if is_large_mining_producer:
+            if exclude_mining_prod and is_large_mining_producer:
                 reasons.append("Company listed as '>10Mt' producer (Mining)")
         
         if is_power and exclude_power:
-            if coal_rev > power_rev_threshold:
+            if exclude_power_rev and coal_rev > power_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev}% > {power_rev_threshold}% (Power)")
-            if coal_power_share > power_prod_threshold:
+            if exclude_power_prod and coal_power_share > power_prod_threshold:
                 reasons.append(f"Coal share of power production {coal_power_share}% > {power_prod_threshold}%")
-            if is_large_power_producer:
+            if exclude_power_prod_mt and is_large_power_producer:
                 reasons.append("Company listed as '>10Mt' producer (Power)")
-            if installed_capacity > capacity_threshold:
+            if exclude_capacity and installed_capacity > capacity_threshold:
                 reasons.append(f"Installed coal power capacity {installed_capacity}MW > {capacity_threshold}MW")
         
         if is_services and exclude_services:
-            if coal_rev > services_rev_threshold:
+            if exclude_services_rev and coal_rev > services_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev}% > {services_rev_threshold}% (Services)")
         
         exclusion_flags.append(bool(reasons))
@@ -74,26 +76,35 @@ def main():
     # Multiple sector selection
     selected_sectors = st.sidebar.multiselect("Select Sectors", ["Mining", "Power", "Services"], default=["Mining", "Power", "Services"])
     
-    # Thresholds per sector
-    mining_rev_threshold = st.sidebar.number_input("Mining: Max coal revenue (%)", value=5.0)
-    mining_prod_threshold = st.sidebar.number_input("Mining: Max production threshold (e.g., 10MT)", value=10.0)
+    # Thresholds per sector with individual exclusion toggles
     exclude_mining = st.sidebar.checkbox("Enable Exclusion for Mining", value=True)
+    mining_rev_threshold = st.sidebar.number_input("Mining: Max coal revenue (%)", value=5.0)
+    exclude_mining_rev = st.sidebar.checkbox("Enable Mining Revenue Exclusion", value=True)
+    mining_prod_threshold = st.sidebar.number_input("Mining: Max production threshold (e.g., 10MT)", value=10.0)
+    exclude_mining_prod = st.sidebar.checkbox("Enable Mining Production Exclusion", value=True)
     
-    power_rev_threshold = st.sidebar.number_input("Power: Max coal revenue (%)", value=20.0)
-    power_prod_threshold = st.sidebar.number_input("Power: Max coal power production (%)", value=20.0)
-    power_prod_threshold_mt = st.sidebar.number_input("Power: Max production threshold (e.g., 10MT)", value=10.0)
-    capacity_threshold = st.sidebar.number_input("Max installed coal power capacity (MW)", value=10000.0)
     exclude_power = st.sidebar.checkbox("Enable Exclusion for Power", value=True)
+    power_rev_threshold = st.sidebar.number_input("Power: Max coal revenue (%)", value=20.0)
+    exclude_power_rev = st.sidebar.checkbox("Enable Power Revenue Exclusion", value=True)
+    power_prod_threshold = st.sidebar.number_input("Power: Max coal power production (%)", value=20.0)
+    exclude_power_prod = st.sidebar.checkbox("Enable Power Production Exclusion", value=True)
+    power_prod_threshold_mt = st.sidebar.number_input("Power: Max production threshold (e.g., 10MT)", value=10.0)
+    exclude_power_prod_mt = st.sidebar.checkbox("Enable Power '>10MT' Exclusion", value=True)
+    capacity_threshold = st.sidebar.number_input("Max installed coal power capacity (MW)", value=10000.0)
+    exclude_capacity = st.sidebar.checkbox("Enable Power Capacity Exclusion", value=True)
     
-    services_rev_threshold = st.sidebar.number_input("Services: Max coal revenue (%)", value=10.0)
     exclude_services = st.sidebar.checkbox("Enable Exclusion for Services", value=True)
+    services_rev_threshold = st.sidebar.number_input("Services: Max coal revenue (%)", value=10.0)
+    exclude_services_rev = st.sidebar.checkbox("Enable Services Revenue Exclusion", value=True)
     
     uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
     
     if uploaded_file and st.sidebar.button("Run"):
         df = load_data(uploaded_file)
         
-        filtered_df = filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, power_prod_threshold_mt, capacity_threshold, exclude_mining, exclude_power, exclude_services)
+        filtered_df = filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, power_prod_threshold_mt, capacity_threshold,
+                                       exclude_mining, exclude_power, exclude_services,
+                                       exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod, exclude_power_prod_mt, exclude_capacity, exclude_services_rev)
         excluded_df = filtered_df[filtered_df["Excluded"] == True]
         non_excluded_df = filtered_df[filtered_df["Excluded"] == False]
         
@@ -103,16 +114,12 @@ def main():
         st.write(f"Excluded companies: {len(excluded_df)}")
         st.write(f"Non-excluded companies: {len(non_excluded_df)}")
         
-        # Ensure only existing columns are selected for display
-        selected_columns = [col for col in ["Company", "Coal Industry Sector", "Coal Share of Revenue", "Coal Share of Power Production", "Installed Coal Power Capacity\n(MW)", ">10MT / >5GW", "BB Ticker", "ISIN equity", "LEI", "Exclusion Reasons"] if col in excluded_df.columns]
-        
+        # Display results
         st.subheader("Excluded Companies")
-        st.dataframe(excluded_df[selected_columns])
-        
-        selected_columns_non_excluded = [col for col in ["Company", "Coal Industry Sector", "Coal Share of Revenue", "Coal Share of Power Production", "Installed Coal Power Capacity\n(MW)", ">10MT / >5GW", "BB Ticker", "ISIN equity", "LEI"] if col in non_excluded_df.columns]
+        st.dataframe(excluded_df)
         
         st.subheader("Non-Excluded Companies")
-        st.dataframe(non_excluded_df[selected_columns_non_excluded])
+        st.dataframe(non_excluded_df)
         
         # Allow download of full results
         st.download_button("Download Results", data=filtered_df.to_csv(index=False), file_name="filtered_results.csv")
