@@ -6,14 +6,33 @@ def load_data(file):
     df = pd.read_excel(file, sheet_name="GCEL 2024")
     return df
 
+def find_column(df, keywords):
+    """Finds a column in df that contains the given keywords (case-insensitive)."""
+    for col in df.columns:
+        col_lower = col.lower().strip()
+        if all(kw in col_lower for kw in keywords):
+            return col
+    return None  # Return None if no matching column is found
+
 def filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_threshold, prod_threshold, capacity_threshold):
     """Apply exclusion criteria to filter companies."""
     exclusion_reasons = []
     exclusion_flags = []
     
+    # Dynamically find columns
+    company_col = find_column(df, ["company"])
+    sector_col = find_column(df, ["coal", "industry", "sector"])
+    coal_rev_col = find_column(df, ["coal", "share", "revenue"])
+    coal_power_col = find_column(df, ["coal", "share", "power"])
+    capacity_col = find_column(df, ["installed", "coal", "power", "capacity"])
+    production_col = find_column(df, [">10mt", ">5gw"])
+    ticker_col = find_column(df, ["bb", "ticker"])
+    isin_col = find_column(df, ["isin", "equity"])
+    lei_col = find_column(df, ["lei"])
+    
     for _, row in df.iterrows():
         reasons = []
-        sector = str(row.get("Coal Industry Sector", "")).strip().lower()
+        sector = str(row.get(sector_col, "")).strip().lower()
         
         # Skip if no valid sector data
         if sector in ["", "ni", "na", "/"]:
@@ -26,12 +45,12 @@ def filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_t
         is_power = "power" in sector
         
         # Extract numerical values, safely handling missing or non-numeric entries
-        coal_rev = pd.to_numeric(row.get("Coal Share of Revenue", 0), errors="coerce") or 0
-        coal_power_share = pd.to_numeric(row.get("Coal Share of Power Production", 0), errors="coerce") or 0
-        installed_capacity = pd.to_numeric(row.get("Installed Coal Power Capacity (MW)", 0), errors="coerce") or 0
+        coal_rev = pd.to_numeric(row.get(coal_rev_col, 0), errors="coerce") or 0
+        coal_power_share = pd.to_numeric(row.get(coal_power_col, 0), errors="coerce") or 0
+        installed_capacity = pd.to_numeric(row.get(capacity_col, 0), errors="coerce") or 0
         
         # Handle ">10MT / >5GW" column
-        production_val = str(row.get(">10MT / >5GW", "")).strip().lower()
+        production_val = str(row.get(production_col, "")).strip().lower()
         is_large_producer = ">10mt" in production_val  # Exclude if true
         
         # Mining criteria
@@ -63,16 +82,17 @@ def filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_t
 def main():
     st.title("Coal Exclusion Filter")
     
-    # User-defined thresholds
-    mining_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=5.0)
-    power_rev_threshold = st.number_input("Power: Max coal revenue (%)", value=20.0)
-    power_prod_threshold = st.number_input("Power: Max coal power production (%)", value=20.0)
-    prod_threshold = st.number_input("Max production/capacity threshold (e.g., 10MT, 5GW)", value=10.0)
-    capacity_threshold = st.number_input("Max installed coal power capacity (MW)", value=10000.0)
+    # Move interface to the right using sidebar
+    st.sidebar.header("Settings")
+    mining_rev_threshold = st.sidebar.number_input("Mining: Max coal revenue (%)", value=5.0)
+    power_rev_threshold = st.sidebar.number_input("Power: Max coal revenue (%)", value=20.0)
+    power_prod_threshold = st.sidebar.number_input("Power: Max coal power production (%)", value=20.0)
+    prod_threshold = st.sidebar.number_input("Max production/capacity threshold (e.g., 10MT, 5GW)", value=10.0)
+    capacity_threshold = st.sidebar.number_input("Max installed coal power capacity (MW)", value=10000.0)
     
     uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
     
-    if uploaded_file and st.button("Run"):
+    if uploaded_file and st.sidebar.button("Run"):
         df = load_data(uploaded_file)
         filtered_df = filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_threshold, prod_threshold, capacity_threshold)
         excluded_df = filtered_df[filtered_df["Excluded"] == True]
