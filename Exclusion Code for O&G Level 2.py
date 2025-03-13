@@ -1,195 +1,203 @@
 import streamlit as st
 import pandas as pd
-import io
-from io import BytesIO
 
-#########################
-# 1) HELPER FUNCTIONS
-#########################
-
-def flatten_multilevel_columns(df):
-    """Flatten multi-level column headers into single strings."""
-    df.columns = [
-        " ".join(str(level) for level in col).strip()
-        for col in df.columns
-    ]
-    return df
-
-def find_column(df, possible_matches, required=True):
-    """Finds the first column matching any item in possible_matches."""
+def find_column_by_keywords(df, keywords, required=True):
+    """
+    Find a column in df whose header contains *all* the given keywords.
+    If required=True and no match is found, raises an error.
+    """
+    # Convert keywords to lowercase for robust comparison
+    keywords = [kw.lower().strip() for kw in keywords]
     for col in df.columns:
-        col_lower = col.strip().lower().replace("\n", " ")  # Handle multi-line headers
-        for pattern in possible_matches:
-            pat_lower = pattern.strip().lower().replace("\n", " ")
-            if pat_lower in col_lower:
-                return col
+        col_lower = col.lower().strip()
+        # Check if *all* keywords appear in the column name
+        if all(kw in col_lower for kw in keywords):
+            return col
     if required:
-        raise ValueError(
-            f"Could not find a required column among {possible_matches}\n"
-            f"Available columns: {list(df.columns)}"
-        )
+        raise ValueError(f"Could not find a column matching keywords: {keywords}")
     return None
 
-def rename_columns(df):
-    """
-    Flatten multi-level headers and ensure correct column detection.
-    """
-    df = flatten_multilevel_columns(df)
-    
-    # Ensure row 7 in Excel is row 0 in pandas (Shift up by 1 row)
-    df = df.iloc[1:].reset_index(drop=True)
-
-    rename_map = {
-        "Company": ["company"],  
-        "GOGEL Tab": ["GOGEL Tab"],  
-        "BB Ticker": ["bb ticker", "bloomberg ticker"],
-        "ISIN Equity": ["isin equity", "isin code"],
-        "LEI": ["lei"],
-        "Length of Pipelines under Development": ["length of pipelines", "pipeline under dev"],
-        "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity", "Liquefaction Capacity Export"],
-        "Regasification Capacity (Import)": ["regasification capacity (import)", "lng import capacity", "Regasification Capacity Import"],
-        "Total Capacity under Development": ["total capacity under development", "total dev capacity"]
-    }
-
-    for new_col, patterns in rename_map.items():
-        old_col = find_column(df, patterns, required=False)
-        if old_col and old_col != new_col:
-            df.rename(columns={old_col: new_col}, inplace=True)
-
-    return df
-
-#########################
-# 2) CORE EXCLUSION LOGIC
-#########################
-
-def filter_all_companies(df):
-    """Parses 'All Companies' sheet, applies exclusion logic, and splits into categories."""
-    
-    # 1) Flatten headers, rename columns
-    df = rename_columns(df)
-
-    # 2) Ensure key columns exist
-    required_columns = [
-        "Company", "GOGEL Tab", "BB Ticker", "ISIN Equity", "LEI",
-        "Length of Pipelines under Development",
-        "Liquefaction Capacity (Export)",
-        "Regasification Capacity (Import)",
-        "Total Capacity under Development"
-    ]
-    for col in required_columns:
-        if col not in df.columns:
-            df[col] = None if col in ["Company", "GOGEL Tab", "BB Ticker", "ISIN Equity", "LEI"] else 0
-
-    # 3) Convert numeric columns
-    numeric_cols = [
-        "Length of Pipelines under Development",
-        "Liquefaction Capacity (Export)",
-        "Regasification Capacity (Import)",
-        "Total Capacity under Development"
-    ]
-    for c in numeric_cols:
-        df[c] = (
-            df[c].astype(str)
-            .str.replace("%", "", regex=True)
-            .str.replace(",", "", regex=True)
-        )
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-
-    # 4) Apply Exclusion Logic
-    df["Upstream_Exclusion_Flag"] = df["GOGEL Tab"].str.contains("upstream", case=False, na=False)
-    df["Midstream_Exclusion_Flag"] = (
-        (df["Length of Pipelines under Development"] > 0)
-        | (df["Liquefaction Capacity (Export)"] > 0)
-        | (df["Regasification Capacity (Import)"] > 0)
-        | (df["Total Capacity under Development"] > 0)
-    )
-    df["Excluded"] = df["Upstream_Exclusion_Flag"] | df["Midstream_Exclusion_Flag"]
-
-    # 5) Build Exclusion Reason
-    def get_exclusion_reason(row):
-        reasons = []
-        if row["Upstream_Exclusion_Flag"]:
-            reasons.append("Upstream in GOGEL Tab")
-        if row["Midstream_Exclusion_Flag"]:
-            reasons.append("Midstream Expansion > 0")
-        return "; ".join(reasons)
-    
-    df["Exclusion Reason"] = df.apply(get_exclusion_reason, axis=1)
-
-    # 6) Move all "No Data" companies into Retained
-    retained_df = df[~df["Excluded"]].copy()
-    excluded_df = df[df["Excluded"]].copy()
-
-    # 7) Keep only required columns, including Midstream Expansion data
-    final_cols = [
-        "Company", "BB Ticker", "ISIN Equity", "LEI",
-        "GOGEL Tab",
-        "Length of Pipelines under Development",
-        "Liquefaction Capacity (Export)",
-        "Regasification Capacity (Import)",
-        "Total Capacity under Development",
-        "Exclusion Reason"
-    ]
-
-    for c in final_cols:
-        for d in [excluded_df, retained_df]:
-            if c not in d.columns:
-                d[c] = None
-
-    return excluded_df[final_cols], retained_df[final_cols]
-
-#########################
-# 3) STREAMLIT APP
-#########################
-
 def main():
-    st.title("All Companies Exclusion Analysis (Excluding Upstream & Midstream Expansion)")
+    st.title("Coal Exclusion Filter")
 
-    uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
+    # ---- Step 1: File Upload ----
+    uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx", "xls"])
+    if uploaded_file is None:
+        st.stop()
 
-    if uploaded_file:
-        xls = pd.ExcelFile(uploaded_file)
+    # Read Excel into DataFrame
+    # If your file has multiple sheets, specify sheet_name or use a selector.
+    df = pd.read_excel(uploaded_file)
 
-        if "All Companies" not in xls.sheet_names:
-            st.error("No sheet named 'All Companies'.")
-            return
+    # ---- Step 2: Let users adjust thresholds in the UI ----
+    st.subheader("Set Thresholds")
+    mining_revenue_threshold = st.number_input(
+        "Mining: Max allowed coal share of revenue (%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=5.0,
+        step=0.1
+    )
+    power_revenue_threshold = st.number_input(
+        "Power: Max allowed coal share of revenue (%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=20.0,
+        step=0.1
+    )
+    power_prod_share_threshold = st.number_input(
+        "Power: Max allowed coal share of power production (%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=20.0,
+        step=0.1
+    )
+    production_threshold = st.number_input(
+        "Max allowed production or capacity threshold (e.g., 10 for 10MT, 5 for 5GW)",
+        min_value=0.0,
+        value=10.0,
+        step=0.1
+    )
 
-        # Read with multi-level headers from rows 3 & 4 (0-based)
-        df_all = pd.read_excel(
-            uploaded_file,
-            sheet_name="All Companies",
-            header=[3,4]
-        )
+    # ---- Step 3: Dynamically find columns by keywords ----
+    # Adjust the keyword lists below to match your real column names.
+    try:
+        coal_sector_col  = find_column_by_keywords(df, ["coal", "industry", "sector"])
+        coal_rev_col     = find_column_by_keywords(df, ["coal", "share", "revenue"])
+        coal_power_col   = find_column_by_keywords(df, ["coal", "share", "power"])  # For power production share
+        production_col   = find_column_by_keywords(df, [">10mt", ">5gw"], required=False)
+        if not production_col:
+            # If you have a better keyword or different name for the production/capacity column, adjust here
+            # or set `required=True` if you must have it.
+            production_col = find_column_by_keywords(df, ["production"], required=False)
 
-        excluded, retained = filter_all_companies(df_all)
+        company_col      = find_column_by_keywords(df, ["company"])
+        bb_ticker_col    = find_column_by_keywords(df, ["bb", "ticker"], required=False)
+        isin_col         = find_column_by_keywords(df, ["isin"], required=False)
+        lei_col          = find_column_by_keywords(df, ["lei"], required=False)
+    except ValueError as e:
+        st.error(str(e))
+        st.stop()
 
-        # STATS
-        total_companies = len(excluded) + len(retained)
-        st.subheader("Summary Statistics")
-        st.write(f"**Total Companies Processed:** {total_companies}")
-        st.write(f"**Excluded Companies (Upstream & Midstream):** {len(excluded)}")
-        st.write(f"**Retained Companies:** {len(retained)}")
+    # If some columns might be missing, fill them with empty data
+    # so we avoid errors in the next steps.
+    for possible_col in [bb_ticker_col, isin_col, lei_col, production_col, coal_power_col]:
+        if possible_col and possible_col not in df.columns:
+            df[possible_col] = None
 
-        # Display DataFrames
-        st.subheader("Excluded Companies")
-        st.dataframe(excluded)
+    # ---- Step 4: Create a function to determine exclusion and reason(s) ----
+    def determine_exclusion(row):
+        sector = str(row[coal_sector_col]).strip().lower()
+        
+        # Safely get numeric values (if cell is blank or not a number, treat as 0.0)
+        def safe_value(val):
+            try:
+                return float(val)
+            except:
+                return 0.0
+        
+        coal_rev = safe_value(row[coal_rev_col])
+        coal_power_share = 0.0
+        if coal_power_col:
+            coal_power_share = safe_value(row[coal_power_col])
+        production_val = 0.0
+        if production_col:
+            production_val = safe_value(row[production_col])
+        
+        reasons = []
 
-        st.subheader("Retained Companies")
-        st.dataframe(retained)
+        # MINING logic
+        if "mining" in sector:
+            # Exclude if coal_rev > mining_revenue_threshold or production_val > production_threshold
+            if coal_rev > mining_revenue_threshold:
+                reasons.append(f"Coal share of revenue {coal_rev}% > {mining_revenue_threshold}% (Mining)")
+            if production_val > production_threshold:
+                reasons.append(f"Production/Capacity {production_val} > {production_threshold} (Mining)")
 
-        # Save to Excel
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            excluded.to_excel(writer, sheet_name="Excluded", index=False)
-            retained.to_excel(writer, sheet_name="Retained", index=False)
-        output.seek(0)
+        # POWER logic
+        elif "power" in sector:
+            # Exclude if any of these hold:
+            #  - coal_rev > power_revenue_threshold
+            #  - coal_power_share > power_prod_share_threshold
+            #  - production_val > production_threshold
+            #  - (You mentioned “coal share of revenue > 5% or …” in the prompt – adapt if needed)
+            if coal_rev > power_revenue_threshold:
+                reasons.append(f"Coal share of revenue {coal_rev}% > {power_revenue_threshold}% (Power)")
+            if coal_power_share > power_prod_share_threshold:
+                reasons.append(f"Coal share of power {coal_power_share}% > {power_prod_share_threshold}%")
+            if production_val > production_threshold:
+                reasons.append(f"Production/Capacity {production_val} > {production_threshold} (Power)")
+            
+            # If you specifically also want to check "coal_rev > 5%", uncomment below:
+            # if coal_rev > 5:
+            #     reasons.append(f"Coal share of revenue {coal_rev}% > 5% (Power)")
 
-        st.download_button(
-            "Download Processed File",
-            output,
-            "all_companies_exclusion.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        # Return a tuple: (is_excluded, reason_string)
+        if len(reasons) > 0:
+            return True, "; ".join(reasons)
+        else:
+            return False, ""
+
+    # ---- Step 5: Apply the exclusion logic to each row ----
+    exclusion_flags = []
+    exclusion_reasons = []
+    for _, row in df.iterrows():
+        excluded, reason = determine_exclusion(row)
+        exclusion_flags.append(excluded)
+        exclusion_reasons.append(reason)
+
+    df["Excluded"] = exclusion_flags
+    df["Exclusion Reasons"] = exclusion_reasons
+
+    # ---- Step 6: Create final output with only needed columns ----
+    # Make sure to handle if bb_ticker_col, isin_col, lei_col, etc. are None
+    final_cols = [col for col in [
+        company_col,
+        bb_ticker_col,
+        isin_col,
+        lei_col,
+        coal_sector_col,
+        coal_rev_col,
+        coal_power_col,
+        production_col,
+        "Excluded",
+        "Exclusion Reasons"
+    ] if col is not None]
+
+    output_df = df[final_cols].copy()
+
+    # Rename columns for clarity
+    rename_map = {
+        company_col:        "Company",
+        bb_ticker_col:      "BB Ticker",
+        isin_col:           "ISIN Equity",
+        lei_col:            "LEI",
+        coal_sector_col:    "Coal Industry Sector",
+        coal_rev_col:       "Coal Share of Revenue",
+    }
+    if coal_power_col:
+        rename_map[coal_power_col] = "Coal Share of Power Production"
+    if production_col:
+        rename_map[production_col] = "Production/Capacity Column"
+
+    output_df.rename(columns=rename_map, inplace=True)
+
+    # ---- Step 7: Display the results ----
+    st.subheader("Excluded Companies")
+    excluded_df = output_df[output_df["Excluded"] == True]
+    st.write(excluded_df)
+
+    st.subheader("Non-Excluded Companies")
+    non_excluded_df = output_df[output_df["Excluded"] == False]
+    st.write(non_excluded_df)
+
+    # Optionally, let user download results
+    st.download_button(
+        label="Download Full Results (CSV)",
+        data=output_df.to_csv(index=False),
+        file_name="exclusion_results.csv",
+        mime="text/csv"
+    )
 
 if __name__ == "__main__":
     main()
