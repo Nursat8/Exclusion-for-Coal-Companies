@@ -6,33 +6,51 @@ def load_data(file):
     df = pd.read_excel(file, sheet_name="GCEL 2024")
     return df
 
-def filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_threshold, prod_threshold):
+def filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_threshold, prod_threshold, capacity_threshold):
     """Apply exclusion criteria to filter companies."""
     exclusion_reasons = []
     exclusion_flags = []
     
     for _, row in df.iterrows():
         reasons = []
-        sector = str(row["Coal Industry Sector"]).strip().lower()
+        sector = str(row.get("Coal Industry Sector", "")).strip().lower()
+        
+        # Skip if no valid sector data
+        if sector in ["", "ni", "na", "/"]:
+            exclusion_flags.append(False)
+            exclusion_reasons.append("")
+            continue
+        
+        # Identify if the company is in Power or Mining
+        is_mining = "mining" in sector
+        is_power = "power" in sector
+        
+        # Extract numerical values, safely handling missing or non-numeric entries
         coal_rev = pd.to_numeric(row.get("Coal Share of Revenue", 0), errors="coerce") or 0
         coal_power_share = pd.to_numeric(row.get("Coal Share of Power Production", 0), errors="coerce") or 0
-        production_val = pd.to_numeric(row.get(">10MT / >5GW", 0), errors="coerce") or 0
+        installed_capacity = pd.to_numeric(row.get("Installed Coal Power Capacity (MW)", 0), errors="coerce") or 0
+        
+        # Handle ">10MT / >5GW" column
+        production_val = str(row.get(">10MT / >5GW", "")).strip().lower()
+        is_large_producer = ">10mt" in production_val  # Exclude if true
         
         # Mining criteria
-        if "mining" in sector:
+        if is_mining:
             if coal_rev > mining_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev}% > {mining_rev_threshold}% (Mining)")
-            if production_val > prod_threshold:
-                reasons.append(f"Production/Capacity {production_val} > {prod_threshold} (Mining)")
+            if is_large_producer:
+                reasons.append("Company listed as '>10Mt' producer (Mining)")
         
         # Power criteria
-        elif "power" in sector:
+        if is_power:
             if coal_rev > power_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev}% > {power_rev_threshold}% (Power)")
             if coal_power_share > power_prod_threshold:
                 reasons.append(f"Coal share of power production {coal_power_share}% > {power_prod_threshold}%")
-            if production_val > prod_threshold:
-                reasons.append(f"Production/Capacity {production_val} > {prod_threshold} (Power)")
+            if is_large_producer:
+                reasons.append("Company listed as '>10Mt' producer (Power)")
+            if installed_capacity > capacity_threshold:
+                reasons.append(f"Installed coal power capacity {installed_capacity}MW > {capacity_threshold}MW")
         
         exclusion_flags.append(bool(reasons))
         exclusion_reasons.append("; ".join(reasons) if reasons else "")
@@ -54,9 +72,10 @@ def main():
         power_rev_threshold = st.number_input("Power: Max coal revenue (%)", value=20.0)
         power_prod_threshold = st.number_input("Power: Max coal power production (%)", value=20.0)
         prod_threshold = st.number_input("Max production/capacity threshold (e.g., 10MT, 5GW)", value=10.0)
+        capacity_threshold = st.number_input("Max installed coal power capacity (MW)", value=10000.0)
         
         if st.button("Apply Filters"):
-            filtered_df = filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_threshold, prod_threshold)
+            filtered_df = filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_threshold, prod_threshold, capacity_threshold)
             excluded_df = filtered_df[filtered_df["Excluded"] == True]
             non_excluded_df = filtered_df[filtered_df["Excluded"] == False]
             
