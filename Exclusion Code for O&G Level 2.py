@@ -20,15 +20,15 @@ def filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_t
     exclusion_flags = []
     
     # Dynamically find columns
-    company_col = find_column(df, ["company"])
-    sector_col = find_column(df, ["coal", "industry", "sector"])
-    coal_rev_col = find_column(df, ["coal", "share", "revenue"])
-    coal_power_col = find_column(df, ["coal", "share", "power"])
-    capacity_col = find_column(df, ["installed", "coal", "power", "capacity"])
-    production_col = find_column(df, [">10mt", ">5gw"])
-    ticker_col = find_column(df, ["bb", "ticker"])
-    isin_col = find_column(df, ["isin", "equity"])
-    lei_col = find_column(df, ["lei"])
+    company_col = find_column(df, ["company"]) or "Company"
+    sector_col = find_column(df, ["coal", "industry", "sector"]) or "Coal Industry Sector"
+    coal_rev_col = find_column(df, ["coal", "share", "revenue"]) or "Coal Share of Revenue"
+    coal_power_col = find_column(df, ["coal", "share", "power"]) or "Coal Share of Power Production"
+    capacity_col = find_column(df, ["installed", "coal", "power", "capacity"]) or "Installed Coal Power Capacity (MW)"
+    production_col = find_column(df, [">10mt", ">5gw"]) or ">10MT / >5GW"
+    ticker_col = find_column(df, ["bb", "ticker"]) or "BB Ticker"
+    isin_col = find_column(df, ["isin", "equity"]) or "ISIN equity"
+    lei_col = find_column(df, ["lei"]) or "LEI"
     
     for _, row in df.iterrows():
         reasons = []
