@@ -105,24 +105,14 @@ def main():
         filtered_df = filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, power_prod_threshold_mt, capacity_threshold,
                                        exclude_mining, exclude_power, exclude_services,
                                        exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod, exclude_power_prod_mt, exclude_capacity, exclude_services_rev)
-        excluded_df = filtered_df[filtered_df["Excluded"] == True]
-        non_excluded_df = filtered_df[filtered_df["Excluded"] == False]
-        
-        # Display statistics
-        st.subheader("Statistics")
-        st.write(f"Total companies: {len(filtered_df)}")
-        st.write(f"Excluded companies: {len(excluded_df)}")
-        st.write(f"Non-excluded companies: {len(non_excluded_df)}")
+        excluded_df = filtered_df[filtered_df["Excluded"] == True][["Company", "BB Ticker", "ISIN equity", "LEI", "Coal Share of Revenue", "Coal Share of Power Production", ">10MT / >5GW", "Exclusion Reasons"]]
         
         # Display results
         st.subheader("Excluded Companies")
         st.dataframe(excluded_df)
         
-        st.subheader("Non-Excluded Companies")
-        st.dataframe(non_excluded_df)
-        
         # Allow download of full results
-        st.download_button("Download Results", data=filtered_df.to_csv(index=False), file_name="filtered_results.csv")
+        st.download_button("Download Results", data=excluded_df.to_csv(index=False), file_name="filtered_results.csv")
 
 if __name__ == "__main__":
     main()
