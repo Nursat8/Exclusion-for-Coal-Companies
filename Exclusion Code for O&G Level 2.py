@@ -3,19 +3,26 @@ import pandas as pd
 
 def find_column_by_keywords(df, keywords, required=True):
     """
-    Find a column in df whose header contains *all* the given keywords.
+    Find a column in df whose header matches exactly or contains *all* the given keywords.
     If required=True and no match is found, raises an error.
     """
-    # Convert keywords to lowercase for robust comparison
     keywords = [kw.lower().strip() for kw in keywords]
+
+    # First, check for exact matches
+    for col in df.columns:
+        if col.lower().strip() in keywords:
+            return col
+
+    # If no exact match, check for keyword presence
     for col in df.columns:
         col_lower = col.lower().strip()
-        # Check if *all* keywords appear in the column name
         if all(kw in col_lower for kw in keywords):
             return col
+
     if required:
-        raise ValueError(f"Could not find a column matching keywords: {keywords}")
+        raise ValueError(f"Could not find a column matching keywords: {keywords}. Columns: {', '.join(df.columns)}")
     return None
+
 
 def main():
     st.title("Coal Exclusion Filter")
