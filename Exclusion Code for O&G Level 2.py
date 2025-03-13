@@ -16,7 +16,9 @@ def filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_t
         sector = str(row["Coal Industry Sector"]).strip().lower()
         coal_rev = row.get("Coal Share of Revenue", 0) or 0
         coal_power_share = row.get("Coal Share of Power Production", 0) or 0
-        production_val = row.get(">10MT / >5GW", 0) or 0
+        
+        # Convert production_val to numeric safely
+        production_val = pd.to_numeric(row.get(">10MT / >5GW", 0), errors="coerce") or 0
         
         # Mining criteria
         if "mining" in sector:
