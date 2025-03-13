@@ -104,12 +104,16 @@ def main():
         st.write(f"Excluded companies: {len(excluded_df)}")
         st.write(f"Non-excluded companies: {len(non_excluded_df)}")
         
-        # Display results
+        # Ensure only existing columns are selected for display
+        available_columns = [col for col in [company_col, sector_col, coal_rev_col, coal_power_col, capacity_col, ticker_col, isin_col, lei_col, "Exclusion Reasons"] if col in excluded_df.columns]
+        
         st.subheader("Excluded Companies")
-        st.dataframe(excluded_df[["Company", "Coal Industry Sector", "Coal Share of Revenue", "Coal Share of Power Production", "Installed Coal Power Capacity (MW)", "BB Ticker", "ISIN equity", "LEI", "Exclusion Reasons"]])
+        st.dataframe(excluded_df[available_columns])
+        
+        available_columns_non_excluded = [col for col in [company_col, sector_col, coal_rev_col, coal_power_col, capacity_col, ticker_col, isin_col, lei_col] if col in non_excluded_df.columns]
         
         st.subheader("Non-Excluded Companies")
-        st.dataframe(non_excluded_df[["Company", "Coal Industry Sector", "Coal Share of Revenue", "Coal Share of Power Production", "Installed Coal Power Capacity (MW)", "BB Ticker", "ISIN equity", "LEI"]])
+        st.dataframe(non_excluded_df[available_columns_non_excluded])
         
         # Allow download of full results
         st.download_button("Download Results", data=filtered_df.to_csv(index=False), file_name="filtered_results.csv")
