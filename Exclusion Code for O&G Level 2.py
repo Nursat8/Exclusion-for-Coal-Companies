@@ -6,8 +6,8 @@ def load_data(file):
     df = pd.read_excel(file, sheet_name="GCEL 2024")
     return df
 
-def filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_threshold, mining_prod_threshold, power_prod_threshold_mt, capacity_threshold):
-    """Apply exclusion criteria to filter companies."""
+def filter_companies(df, selected_sector, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, power_prod_threshold_mt, capacity_threshold, exclusion_enabled):
+    """Apply exclusion criteria to filter companies based on selected sector and thresholds."""
     exclusion_reasons = []
     exclusion_flags = []
     
@@ -21,10 +21,10 @@ def filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_t
             exclusion_reasons.append("")
             continue
         
-        # Identify if the company is in Mining, Power, or Services
-        is_mining = "mining" in sector
-        is_power = "power" in sector
-        is_services = "services" in sector
+        # Identify if the company belongs to selected sector
+        is_mining = "mining" in sector and selected_sector == "Mining"
+        is_power = "power" in sector and selected_sector == "Power"
+        is_services = "services" in sector and selected_sector == "Services"
         
         # Extract numerical values, safely handling missing or non-numeric entries
         coal_rev = pd.to_numeric(row.get("Coal Share of Revenue", 0), errors="coerce") or 0
@@ -36,23 +36,27 @@ def filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_t
         is_large_mining_producer = is_mining and ">10mt" in production_val  # Exclude if true
         is_large_power_producer = is_power and ">10mt" in production_val  # Exclude if true
         
-        # Mining criteria
-        if is_mining:
-            if coal_rev > mining_rev_threshold:
-                reasons.append(f"Coal share of revenue {coal_rev}% > {mining_rev_threshold}% (Mining)")
-            if is_large_mining_producer:
-                reasons.append("Company listed as '>10Mt' producer (Mining)")
-        
-        # Power criteria
-        if is_power:
-            if coal_rev > power_rev_threshold:
-                reasons.append(f"Coal share of revenue {coal_rev}% > {power_rev_threshold}% (Power)")
-            if coal_power_share > power_prod_threshold:
-                reasons.append(f"Coal share of power production {coal_power_share}% > {power_prod_threshold}%")
-            if is_large_power_producer:
-                reasons.append("Company listed as '>10Mt' producer (Power)")
-            if installed_capacity > capacity_threshold:
-                reasons.append(f"Installed coal power capacity {installed_capacity}MW > {capacity_threshold}MW")
+        # Apply thresholds based on selected sector
+        if exclusion_enabled:
+            if is_mining:
+                if coal_rev > mining_rev_threshold:
+                    reasons.append(f"Coal share of revenue {coal_rev}% > {mining_rev_threshold}% (Mining)")
+                if is_large_mining_producer:
+                    reasons.append("Company listed as '>10Mt' producer (Mining)")
+            
+            if is_power:
+                if coal_rev > power_rev_threshold:
+                    reasons.append(f"Coal share of revenue {coal_rev}% > {power_rev_threshold}% (Power)")
+                if coal_power_share > power_prod_threshold:
+                    reasons.append(f"Coal share of power production {coal_power_share}% > {power_prod_threshold}%")
+                if is_large_power_producer:
+                    reasons.append("Company listed as '>10Mt' producer (Power)")
+                if installed_capacity > capacity_threshold:
+                    reasons.append(f"Installed coal power capacity {installed_capacity}MW > {capacity_threshold}MW")
+            
+            if is_services:
+                if coal_rev > services_rev_threshold:
+                    reasons.append(f"Coal share of revenue {coal_rev}% > {services_rev_threshold}% (Services)")
         
         exclusion_flags.append(bool(reasons))
         exclusion_reasons.append("; ".join(reasons) if reasons else "")
@@ -67,19 +71,30 @@ def main():
     
     # Move interface to the right using sidebar
     st.sidebar.header("Settings")
+    
+    # Sector selection
+    selected_sector = st.sidebar.selectbox("Select Sector", ["Mining", "Power", "Services"])
+    
+    # Thresholds per sector
     mining_rev_threshold = st.sidebar.number_input("Mining: Max coal revenue (%)", value=5.0)
+    mining_prod_threshold = st.sidebar.number_input("Mining: Max production threshold (e.g., 10MT)", value=10.0)
+    
     power_rev_threshold = st.sidebar.number_input("Power: Max coal revenue (%)", value=20.0)
     power_prod_threshold = st.sidebar.number_input("Power: Max coal power production (%)", value=20.0)
-    mining_prod_threshold = st.sidebar.number_input("Mining: Max production threshold (e.g., 10MT)", value=10.0)
     power_prod_threshold_mt = st.sidebar.number_input("Power: Max production threshold (e.g., 10MT)", value=10.0)
     capacity_threshold = st.sidebar.number_input("Max installed coal power capacity (MW)", value=10000.0)
+    
+    services_rev_threshold = st.sidebar.number_input("Services: Max coal revenue (%)", value=10.0)
+    
+    # Exclusion toggle
+    exclusion_enabled = st.sidebar.checkbox("Enable Exclusion", value=True)
     
     uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
     
     if uploaded_file and st.sidebar.button("Run"):
         df = load_data(uploaded_file)
         
-        filtered_df = filter_companies(df, mining_rev_threshold, power_rev_threshold, power_prod_threshold, mining_prod_threshold, power_prod_threshold_mt, capacity_threshold)
+        filtered_df = filter_companies(df, selected_sector, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, power_prod_threshold_mt, capacity_threshold, exclusion_enabled)
         excluded_df = filtered_df[filtered_df["Excluded"] == True]
         non_excluded_df = filtered_df[filtered_df["Excluded"] == False]
         
