@@ -89,8 +89,16 @@ def main():
         
         selected_sectors = st.sidebar.multiselect("Select Sectors", ["Mining", "Power", "Services"], default=["Mining", "Power", "Services"])
         
+        with st.sidebar.expander("Threshold Settings"):
+            mining_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=5.0)
+            power_rev_threshold = st.number_input("Power: Max coal revenue (%)", value=20.0)
+            services_rev_threshold = st.number_input("Services: Max coal revenue (%)", value=10.0)
+            power_prod_threshold = st.number_input("Power: Max coal power production (%)", value=20.0)
+            mining_prod_threshold = st.number_input("Mining: Max production threshold (e.g., 10MT)", value=10.0)
+            capacity_threshold = st.number_input("Max installed coal power capacity (MW)", value=10000.0)
+        
         if st.sidebar.button("Run"):
-            filtered_df = filter_companies(df, selected_sectors, 5.0, 20.0, 10.0, 20.0, 10.0, 10000.0,
+            filtered_df = filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, capacity_threshold,
                                            True, True, False,
                                            True, True, True, True, True, False,
                                            column_mapping)
@@ -98,6 +106,11 @@ def main():
                                                                           column_mapping.get("coal_power_col", "Coal Share of Power Production"),
                                                                           column_mapping.get("capacity_col", "Installed Coal Power Capacity (MW)"),
                                                                           column_mapping.get("production_col", ">10MT / >5GW"), "Exclusion Reasons"]]
+            
+            st.subheader("Statistics")
+            st.write(f"Total companies: {len(filtered_df)}")
+            st.write(f"Excluded companies: {len(excluded_df)}")
+            st.write(f"Non-excluded companies: {len(filtered_df) - len(excluded_df)}")
             
             st.subheader("Excluded Companies")
             st.dataframe(excluded_df)
