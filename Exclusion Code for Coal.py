@@ -12,25 +12,19 @@ def load_data(file, sheet_name):
         return None
 
 def find_column(df, must_keywords, exclude_keywords=None):
-    """
-    Finds a column in df that contains all must_keywords (case-insensitive)
-    and excludes any column that contains any of the exclude_keywords.
-    Returns the first matching column name or None if no match.
-    """
     if exclude_keywords is None:
         exclude_keywords = []
 
     for col in df.columns:
         col_lower = col.lower().strip()
-
-        # Must contain all these
+        # Must contain all must_keywords
         if all(mk.lower() in col_lower for mk in must_keywords):
-            # Must not contain any exclude keywords
+            # Exclude if any of exclude_keywords appear
             if any(ek.lower() in col_lower for ek in exclude_keywords):
-                continue  # skip this col
+                continue
             return col
-
     return None
+
 
 def filter_companies(
     df,
