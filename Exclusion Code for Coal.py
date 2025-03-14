@@ -13,8 +13,8 @@ def load_data(file, sheet_name):
 
 def find_column(df, must_keywords, exclude_keywords=None):
     """
-    Finds a column in df that contains all must_keywords (case-insensitive)
-    and excludes any column containing any exclude_keywords.
+    Finds a column in df that contains all 'must_keywords' (case-insensitive)
+    and excludes any column containing any 'exclude_keywords'.
     Returns the first matching column name or None if no match.
     """
     if exclude_keywords is None:
@@ -22,9 +22,9 @@ def find_column(df, must_keywords, exclude_keywords=None):
 
     for col in df.columns:
         col_lower = col.lower().strip()
-        # Must contain all must_keywords
+        # must contain all must_keywords
         if all(mk.lower() in col_lower for mk in must_keywords):
-            # Skip if any exclude_keywords found
+            # skip if any exclude keyword
             if any(ex_kw.lower() in col_lower for ex_kw in exclude_keywords):
                 continue
             return col
@@ -65,18 +65,9 @@ def filter_companies(
 ):
     """
     Apply exclusion criteria to filter companies based on thresholds.
-    'Decimal' values in data are fractions-of-1.0, so we multiply by 100 for rev/production % checks.
-
-    Each sector now has 4 possible threshold checks:
-      - (MT)   => e.g., 'production_val_MT'
-      - (GW)   => e.g., 'production_val_GW'
-      - (MW)   => capacity (for Power)
-      - (%)    => production share or rev share
-    For demonstration, we treat the existing data:
-      - 'coal_rev'   => fraction-of-1.0 (multiply by 100 for %)
-      - 'coal_power_share' => fraction-of-1.0 (multiply by 100 for %)
-      - 'installed_capacity' => capacity in MW
-      - 'production_col' => either '>10MT / >5GW' text, from which we guess whether it's > '...MT' or '...GW'.
+    Decimal values in data are fractions-of-1.0, so multiply by 100 for rev/production % checks.
+    Uses the 'production_col' text (e.g., '>10MT / >5GW') to detect if it's >10MT or >5GW
+    for demonstration of (MT)/(GW) logic.
     """
     exclusion_flags = []
     exclusion_reasons = []
@@ -87,10 +78,10 @@ def filter_companies(
 
         # Identify membership
         is_mining = ("mining" in sector)
-        is_power  = ("power"  in sector)
+        is_power  = ("power" in sector)
         is_services = ("services" in sector)
 
-        # Pull numeric fields
+        # Extract numeric fields
         coal_rev = pd.to_numeric(row.get(column_mapping["coal_rev_col"], 0), errors="coerce") or 0.0
         coal_power_share = pd.to_numeric(row.get(column_mapping["coal_power_col"], 0), errors="coerce") or 0.0
         installed_capacity = pd.to_numeric(row.get(column_mapping["capacity_col"], 0), errors="coerce") or 0.0
@@ -106,16 +97,13 @@ def filter_companies(
 
             # => Mining Production (MT)
             if exclude_mining_prod_mt:
-                # If we see "mt" in production_val, assume it's MT
                 if ">10mt" in production_val:
-                    # for demonstration, we treat "10MT" as a text threshold
-                    # if user wants actual numeric, they'd parse
-                    reasons.append(f"Mining production text suggests >10MT vs threshold {mining_prod_mt_threshold}MT")
+                    reasons.append(f"Mining production suggests >10MT vs threshold {mining_prod_mt_threshold}MT")
 
             # => Mining Production (GW)
             if exclude_mining_prod_gw:
                 if ">5gw" in production_val:
-                    reasons.append(f"Mining production text suggests >5GW vs threshold {mining_prod_gw_threshold}GW")
+                    reasons.append(f"Mining production suggests >5GW vs threshold {mining_prod_gw_threshold}GW")
 
         # =========== POWER ===========
         if is_power and exclude_power:
@@ -130,15 +118,15 @@ def filter_companies(
             # => Power Production (MT)
             if exclude_power_prod_mt:
                 if ">10mt" in production_val:
-                    reasons.append(f"Power production text suggests >10MT vs threshold {power_prod_mt_threshold}MT")
+                    reasons.append(f"Power production suggests >10MT vs threshold {power_prod_mt_threshold}MT")
 
             # => Power Production (GW)
             if exclude_power_prod_gw:
                 if ">5gw" in production_val:
-                    reasons.append(f"Power production text suggests >5GW vs threshold {power_prod_gw_threshold}GW")
+                    reasons.append(f"Power production suggests >5GW vs threshold {power_prod_gw_threshold}GW")
 
             # => Max capacity (MW)
-            if exclude_capacity_mw and (installed_capacity > capacity_threshold_mw):
+            if exclude_capacity_mw and installed_capacity > capacity_threshold_mw:
                 reasons.append(f"Installed coal power capacity {installed_capacity:.2f}MW > {capacity_threshold_mw}MW")
 
         # =========== SERVICES ===========
@@ -150,12 +138,12 @@ def filter_companies(
             # => Services Production (MT)
             if exclude_services_prod_mt:
                 if ">10mt" in production_val:
-                    reasons.append(f"Services production text suggests >10MT vs threshold {services_prod_mt_threshold}MT")
+                    reasons.append(f"Services production suggests >10MT vs threshold {services_prod_mt_threshold}MT")
 
             # => Services Production (GW)
             if exclude_services_prod_gw:
                 if ">5gw" in production_val:
-                    reasons.append(f"Services production text suggests >5GW vs threshold {services_prod_gw_threshold}GW")
+                    reasons.append(f"Services production suggests >5GW vs threshold {services_prod_gw_threshold}GW")
 
         # If reasons found => excluded
         exclusion_flags.append(bool(reasons))
@@ -174,7 +162,6 @@ def main():
     sheet_name = st.sidebar.text_input("Sheet name to check", value="GCEL 2024")
     uploaded_file = st.sidebar.file_uploader("Upload your Excel file", type=["xlsx"])
 
-    # =============== FULL THRESHOLDS ===============
     st.sidebar.header("Mining Thresholds")
     exclude_mining = st.sidebar.checkbox("Exclude Mining", value=True)
     mining_rev_threshold = st.sidebar.number_input("Mining: Max coal revenue (%)", value=5.0)
@@ -211,7 +198,7 @@ def main():
         if df is None:
             return
 
-        # find columns, skipping "parent" in company
+        # For 'company', skip "parent" to avoid Parent Company
         def find_co(*kw): return find_column(df, list(kw), exclude_keywords=["parent"])
         company_col = find_co("company") or "Company"
 
@@ -300,16 +287,18 @@ def main():
             retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
             no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
 
-        # Stats
+        # Statistics
         st.subheader("Statistics")
         st.write(f"Total companies: {len(df)}")
         st.write(f"Excluded companies: {len(excluded_df)}")
         st.write(f"Retained companies: {len(retained_df)}")
         st.write(f"Companies with no data: {len(no_data_df)}")
 
+        # Show Excluded in UI
         st.subheader("Excluded Companies")
         st.dataframe(excluded_df)
 
+        # Download
         st.download_button(
             "Download Results",
             data=output.getvalue(),
