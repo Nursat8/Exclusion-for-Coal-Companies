@@ -95,7 +95,7 @@ def main():
     
     st.sidebar.subheader("Services Settings")
     exclude_services = st.sidebar.checkbox("Enable Exclusion for Services", value=False)
-    services_rev_threshold = st.sidebar.number_input("Max coal revenue (%)", value=10.0, disabled=True)
+    services_rev_threshold = st.sidebar.number_input("Max coal revenue (%)", value=10.0)
     exclude_services_rev = st.sidebar.checkbox("Enable Services Revenue Exclusion", value=False)
     
     uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
@@ -106,7 +106,7 @@ def main():
         filtered_df = filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, power_prod_threshold_mt, capacity_threshold,
                                        exclude_mining, exclude_power, exclude_services,
                                        exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod, exclude_power_prod_mt, exclude_capacity, exclude_services_rev)
-        excluded_df = filtered_df[filtered_df["Excluded"] == True][["Company", "BB Ticker", "ISIN equity", "LEI", "Coal Share of Revenue", "Coal Share of Power Production", ">10MT / >5GW", "Exclusion Reasons"]]
+        excluded_df = filtered_df[filtered_df["Excluded"] == True][["Company", "BB Ticker", "ISIN equity", "LEI", "Coal Share of Revenue", "Coal Share of Power Production", "Installed Coal Power Capacity\n(MW)", ">10MT / >5GW", "Exclusion Reasons"]]
         
         # Display statistics
         st.subheader("Statistics")
