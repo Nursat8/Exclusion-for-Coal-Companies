@@ -225,7 +225,7 @@ def main():
         st.download_button(
             "Download Results",
             data=output.getvalue(),
-            file_name="filtered_results.xlsx",
+            file_name="Excluded Companies Coal Level 1.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
