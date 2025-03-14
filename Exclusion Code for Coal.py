@@ -44,7 +44,7 @@ def filter_companies(df,
         coal_power_share = pd.to_numeric(row.get(column_mapping["coal_power_col"], 0), errors="coerce") or 0.0
         installed_capacity = pd.to_numeric(row.get(column_mapping["capacity_col"], 0), errors="coerce") or 0.0
 
-        # =============== MINING ===============
+        # ================= MINING =================
         if is_mining and exclude_mining:
             if exclude_mining_rev and coal_rev * 100 > mining_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev * 100:.2f}% > {mining_rev_threshold}% (Mining)")
@@ -53,7 +53,7 @@ def filter_companies(df,
                 if ">10mt" in production_val:
                     reasons.append("Company listed as '>10Mt' producer (Mining)")
 
-        # =============== POWER ===============
+        # ================= POWER =================
         if is_power and exclude_power:
             if exclude_power_rev and coal_rev * 100 > power_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev * 100:.2f}% > {power_rev_threshold}% (Power)")
@@ -62,12 +62,13 @@ def filter_companies(df,
             if exclude_capacity and installed_capacity > capacity_threshold:
                 reasons.append(f"Installed coal power capacity {installed_capacity:.2f}MW > {capacity_threshold}MW")
 
-        # =============== SERVICES ===============
+        # ================= SERVICES =================
         if is_services and exclude_services:
             if exclude_services_rev and coal_rev * 100 > services_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev * 100:.2f}% > {services_rev_threshold}% (Services)")
 
         exclusion_flags.append(bool(reasons))
+        # Join the reasons or leave blank if none
         exclusion_reasons.append("; ".join(reasons) if reasons else "")
 
     df["Excluded"] = exclusion_flags
@@ -78,13 +79,13 @@ def main():
     st.set_page_config(page_title="Coal Exclusion Filter", layout="wide")
     st.title("Coal Exclusion Filter")
 
-    # =============== SIDEBAR: Sheet Name + File Upload ===============
-    st.sidebar.header("Sheet & File")
+    # =============== SIDEBAR: SHEET + FILE ===============
+    st.sidebar.header("File and Sheet")
     sheet_name = st.sidebar.text_input("Sheet name to check", value="GCEL 2024")
     uploaded_file = st.sidebar.file_uploader("Upload your Excel file", type=["xlsx"])
 
     # =============== SIDEBAR: Sector Thresholds ===============
-    st.sidebar.header("Threshold Settings")
+    st.sidebar.header("Sector Thresholds")
 
     with st.sidebar.expander("Mining Settings", expanded=True):
         exclude_mining = st.checkbox("Enable Exclusion for Mining", value=True)
@@ -107,18 +108,12 @@ def main():
         services_rev_threshold = st.number_input("Services: Max coal revenue (%)", value=10.0)
         exclude_services_rev = st.checkbox("Enable Services Revenue Exclusion", value=False)
 
-    # =============== PROCESS WHEN "Run" IS CLICKED ===============
     if uploaded_file and st.sidebar.button("Run"):
-        # Load the user-specified sheet
-        try:
-            df = load_data(uploaded_file, sheet_name)
-            if df is None:
-                return
-        except Exception as e:
-            st.error(f"Error reading sheet '{sheet_name}': {e}")
-            return
+        df = load_data(uploaded_file, sheet_name)
+        if df is None:
+            return  # error message already displayed
 
-        # Detect columns dynamically
+        # Dynamically find columns
         column_mapping = {
             "sector_col": find_column(df, ["industry", "sector"]) or "Coal Industry Sector",
             "company_col": find_column(df, ["company"]) or "Company",
@@ -131,18 +126,29 @@ def main():
             "lei_col": find_column(df, ["lei"]) or "LEI"
         }
 
-        # Filter dataframe
+        # Filter DataFrame
         filtered_df = filter_companies(
             df,
-            mining_rev_threshold, power_rev_threshold, services_rev_threshold,
-            power_prod_threshold, mining_prod_threshold, capacity_threshold,
-            exclude_mining, exclude_power, exclude_services,
-            exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod,
-            exclude_capacity, exclude_services_rev,
+            mining_rev_threshold,
+            power_rev_threshold,
+            services_rev_threshold,
+            power_prod_threshold,
+            mining_prod_threshold,
+            capacity_threshold,
+            exclude_mining,
+            exclude_power,
+            True,  # Keep services sector enabled for demonstration
+            exclude_mining_rev,
+            exclude_mining_prod,
+            exclude_power_rev,
+            exclude_power_prod,
+            exclude_capacity,
+            True,
             column_mapping
         )
 
-        # Create separate dataframes
+        # Build the final data slices
+        # 1) Excluded
         excluded_df = filtered_df[filtered_df["Excluded"] == True][
             [
                 column_mapping["company_col"],
@@ -156,31 +162,44 @@ def main():
                 "Exclusion Reasons",
             ]
         ]
-        retained_df = filtered_df[filtered_df["Excluded"] == False]
-        # "No Data" means sector_col is NaN or blank
-        # We can check .isna() if truly missing, or we can handle empty too, but let's do .isna()
-        no_data_df = df[df[column_mapping["sector_col"]].isna()]
 
-        # Write results to an in-memory Excel file
+        # 2) Retained
+        retained_cols = [
+            column_mapping["company_col"],
+            column_mapping["production_col"],
+            column_mapping["capacity_col"],
+            column_mapping["coal_rev_col"],
+            column_mapping["sector_col"],
+            column_mapping["ticker_col"],
+            column_mapping["isin_col"],
+            column_mapping["lei_col"],
+        ]
+        retained_df = filtered_df[filtered_df["Excluded"] == False][retained_cols]
+
+        # 3) No-Data
+        no_data_mask = df[column_mapping["sector_col"]].isna()
+        no_data_df = df[no_data_mask][retained_cols]
+
+        # Write to an in-memory Excel file with 3 sheets
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             excluded_df.to_excel(writer, sheet_name="Excluded Companies", index=False)
             retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
             no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
-            # No writer.save() or writer.close() needed here - context manager handles it
+            # No explicit save or close needed
 
-        # ================= STATISTICS =================
+        # ==================== STATISTICS ====================
         st.subheader("Statistics")
         st.write(f"Total companies: {len(df)}")
         st.write(f"Excluded companies: {len(excluded_df)}")
         st.write(f"Retained companies: {len(retained_df)}")
         st.write(f"Companies with no data: {len(no_data_df)}")
 
-        # ================= SHOW PREVIEW OF EXCLUDED =================
+        # Show the excluded data in the UI
         st.subheader("Excluded Companies")
         st.dataframe(excluded_df)
 
-        # ================= DOWNLOAD BUTTON =================
+        # Provide a download button for the final Excel file
         st.download_button(
             "Download Results",
             data=output.getvalue(),
