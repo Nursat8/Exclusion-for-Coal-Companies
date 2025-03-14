@@ -13,9 +13,9 @@ def load_data(file, sheet_name):
 
 def find_column(df, must_keywords, exclude_keywords=None):
     """
-    Finds a column in df that contains all must_keywords (case-insensitive)
-    and excludes columns containing any exclude_keywords.
-    Returns the first matching column or None if no match.
+    Finds a column in df that contains all 'must_keywords' (case-insensitive)
+    and excludes any column containing any 'exclude_keywords'.
+    Returns the first matching column name or None if no match.
     """
     if exclude_keywords is None:
         exclude_keywords = []
@@ -24,8 +24,8 @@ def find_column(df, must_keywords, exclude_keywords=None):
         col_lower = col.lower().strip()
         # must contain all must_keywords
         if all(mk.lower() in col_lower for mk in must_keywords):
-            # skip if any exclude keywords are found
-            if any(ek.lower() in col_lower for ek in exclude_keywords):
+            # skip if any exclude keywords found
+            if any(ex_kw.lower() in col_lower for ex_kw in exclude_keywords):
                 continue
             return col
     return None
@@ -61,16 +61,16 @@ def filter_companies(
     exclude_services_rev,
     exclude_services_prod_mt,
     exclude_services_prod_gw,
-    # Expansion toggles
-    exclude_mining_expansion,
-    exclude_power_expansion,
-    exclude_services_expansion,
+    # expansions chosen
+    expansions_mining,
+    expansions_power,
+    expansions_services,
     column_mapping
 ):
     """
     Apply exclusion criteria to filter companies based on thresholds.
-    Also exclude if the user toggles expansion for Mining/Power/Services and
-    the row has a non-empty 'expansion' column.
+    Also exclude if the row has an 'expansion_col' that contains any user-chosen expansions
+    for that sector.
     """
     exclusion_flags = []
     exclusion_reasons = []
@@ -79,7 +79,7 @@ def filter_companies(
         reasons = []
         sector = str(row.get(column_mapping["sector_col"], "")).strip().lower()
 
-        # Identify sector membership
+        # Identify membership
         is_mining = ("mining" in sector)
         is_power  = ("power"  in sector)
         is_services = ("services" in sector)
@@ -89,12 +89,11 @@ def filter_companies(
         coal_power_share = pd.to_numeric(row.get(column_mapping["coal_power_col"], 0), errors="coerce") or 0.0
         installed_capacity = pd.to_numeric(row.get(column_mapping["capacity_col"], 0), errors="coerce") or 0.0
 
-        # Check text from production column
+        # Production text
         production_val = str(row.get(column_mapping["production_col"], "")).lower()
 
-        # Check expansion column
-        expansion_val = str(row.get(column_mapping["expansion_col"], "")).strip()
-        has_expansion = bool(expansion_val)  # True if not empty
+        # expansions text
+        expansion_text = str(row.get(column_mapping["expansion_col"], "")).lower().strip()
 
         # =========== MINING ===========
         if is_mining and exclude_mining:
@@ -103,22 +102,25 @@ def filter_companies(
                 reasons.append(f"Coal share of revenue {coal_rev * 100:.2f}% > {mining_rev_threshold}% (Mining)")
 
             # => Mining Production (MT)
-            if exclude_mining_prod_mt:
-                if ">10mt" in production_val:
-                    reasons.append(f"Mining production suggests >10MT vs threshold {mining_prod_mt_threshold}MT")
+            if exclude_mining_prod_mt and ">10mt" in production_val:
+                reasons.append(f"Mining production suggests >10MT vs threshold {mining_prod_mt_threshold}MT")
 
             # => Mining Production (GW)
-            if exclude_mining_prod_gw:
-                if ">5gw" in production_val:
-                    reasons.append(f"Mining production suggests >5GW vs threshold {mining_prod_gw_threshold}GW")
+            if exclude_mining_prod_gw and ">5gw" in production_val:
+                reasons.append(f"Mining production suggests >5GW vs threshold {mining_prod_gw_threshold}GW")
 
-            # => Mining expansion plan
-            if exclude_mining_expansion and has_expansion:
-                reasons.append("Mining expansion plan found")
+            # => Mining expansions
+            if expansions_mining:
+                # If expansion_text has any user-chosen expansions
+                # e.g. if expansions_mining=["mining","subsidiary"], we exclude if expansion_text has "mining" or "subsidiary"
+                for choice in expansions_mining:
+                    if choice.lower() in expansion_text:
+                        reasons.append(f"Mining expansion plan matched '{choice}'")
+                        break  # exclude once we find any match
 
         # =========== POWER ===========
         if is_power and exclude_power:
-            # => Power Revenue check
+            # => Power Revenue
             if exclude_power_rev and (coal_rev * 100) > power_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev * 100:.2f}% > {power_rev_threshold}% (Power)")
 
@@ -127,42 +129,44 @@ def filter_companies(
                 reasons.append(f"Coal share of power production {coal_power_share * 100:.2f}% > {power_prod_threshold_percent}%")
 
             # => Power Production (MT)
-            if exclude_power_prod_mt:
-                if ">10mt" in production_val:
-                    reasons.append(f"Power production suggests >10MT vs threshold {power_prod_mt_threshold}MT")
+            if exclude_power_prod_mt and ">10mt" in production_val:
+                reasons.append(f"Power production suggests >10MT vs threshold {power_prod_mt_threshold}MT")
 
             # => Power Production (GW)
-            if exclude_power_prod_gw:
-                if ">5gw" in production_val:
-                    reasons.append(f"Power production suggests >5GW vs threshold {power_prod_gw_threshold}GW")
+            if exclude_power_prod_gw and ">5gw" in production_val:
+                reasons.append(f"Power production suggests >5GW vs threshold {power_prod_gw_threshold}GW")
 
-            # => Max capacity (MW)
-            if exclude_capacity_mw and (installed_capacity > capacity_threshold_mw):
+            # => capacity (MW)
+            if (installed_capacity > capacity_threshold_mw):
                 reasons.append(f"Installed coal power capacity {installed_capacity:.2f}MW > {capacity_threshold_mw}MW")
 
-            # => Power expansion plan
-            if exclude_power_expansion and has_expansion:
-                reasons.append("Power expansion plan found")
+            # => expansions in power
+            if expansions_power:
+                for choice in expansions_power:
+                    if choice.lower() in expansion_text:
+                        reasons.append(f"Power expansion plan matched '{choice}'")
+                        break
 
         # =========== SERVICES ===========
         if is_services and exclude_services:
-            # => Services Revenue check
+            # => Services Revenue
             if exclude_services_rev and (coal_rev * 100) > services_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev * 100:.2f}% > {services_rev_threshold}% (Services)")
 
             # => Services Production (MT)
-            if exclude_services_prod_mt:
-                if ">10mt" in production_val:
-                    reasons.append(f"Services production suggests >10MT vs threshold {services_prod_mt_threshold}MT")
+            if exclude_services_prod_mt and ">10mt" in production_val:
+                reasons.append(f"Services production suggests >10MT vs threshold {services_prod_mt_threshold}MT")
 
             # => Services Production (GW)
-            if exclude_services_prod_gw:
-                if ">5gw" in production_val:
-                    reasons.append(f"Services production suggests >5GW vs threshold {services_prod_gw_threshold}GW")
+            if exclude_services_prod_gw and ">5gw" in production_val:
+                reasons.append(f"Services production suggests >5GW vs threshold {services_prod_gw_threshold}GW")
 
-            # => Services expansion plan
-            if exclude_services_expansion and has_expansion:
-                reasons.append("Services expansion plan found")
+            # => expansions in services
+            if expansions_services:
+                for choice in expansions_services:
+                    if choice.lower() in expansion_text:
+                        reasons.append(f"Services expansion plan matched '{choice}'")
+                        break
 
         # If reasons => excluded
         exclusion_flags.append(bool(reasons))
@@ -176,12 +180,12 @@ def main():
     st.set_page_config(page_title="Coal Exclusion Filter", layout="wide")
     st.title("Coal Exclusion Filter")
 
-    # ---------- FILE & SHEET
-    st.sidebar.header("File & Sheet")
+    # ============ FILE & SHEET =============
+    st.sidebar.header("File & Sheet Settings")
     sheet_name = st.sidebar.text_input("Sheet name to check", value="GCEL 2024")
     uploaded_file = st.sidebar.file_uploader("Upload your Excel file", type=["xlsx"])
 
-    # =============== MINING THRESHOLDS ===============
+    # ============ MINING THRESHOLDS ============
     st.sidebar.header("Mining Thresholds")
     exclude_mining = st.sidebar.checkbox("Exclude Mining", value=True)
     mining_rev_threshold = st.sidebar.number_input("Mining: Max coal revenue (%)", value=5.0)
@@ -190,9 +194,13 @@ def main():
     exclude_mining_prod_mt = st.sidebar.checkbox("Exclude if > MT for Mining", value=True)
     mining_prod_gw_threshold = st.sidebar.number_input("Mining: Max production threshold (GW)", value=5.0)
     exclude_mining_prod_gw = st.sidebar.checkbox("Exclude if > GW for Mining", value=True)
-    exclude_mining_expansion = st.sidebar.checkbox("Exclude if Mining has expansion plan", value=True)
 
-    # =============== POWER THRESHOLDS ===============
+    # expansions for Mining
+    st.sidebar.markdown("**Mining Expansion** (choose expansions to exclude):")
+    expansions_possible = ["mining", "infrastructure", "power", "subsidiary of a coal developer"]
+    expansions_mining = st.sidebar.multiselect("Exclude these expansions for Mining", expansions_possible, default=[])
+
+    # ============ POWER THRESHOLDS ============
     st.sidebar.header("Power Thresholds")
     exclude_power = st.sidebar.checkbox("Exclude Power", value=True)
     power_rev_threshold = st.sidebar.number_input("Power: Max coal revenue (%)", value=20.0)
@@ -205,9 +213,12 @@ def main():
     exclude_power_prod_gw = st.sidebar.checkbox("Exclude if > GW for Power", value=True)
     capacity_threshold_mw = st.sidebar.number_input("Power: Max installed coal power capacity (MW)", value=10000.0)
     exclude_capacity_mw = st.sidebar.checkbox("Exclude if capacity threshold exceeded", value=True)
-    exclude_power_expansion = st.sidebar.checkbox("Exclude if Power has expansion plan", value=True)
 
-    # =============== SERVICES THRESHOLDS ===============
+    # expansions for Power
+    st.sidebar.markdown("**Power Expansion** (choose expansions to exclude):")
+    expansions_power = st.sidebar.multiselect("Exclude these expansions for Power", expansions_possible, default=[])
+
+    # ============ SERVICES THRESHOLDS ============
     st.sidebar.header("Services Thresholds")
     exclude_services = st.sidebar.checkbox("Exclude Services", value=False)
     services_rev_threshold = st.sidebar.number_input("Services: Max coal revenue (%)", value=10.0)
@@ -216,18 +227,23 @@ def main():
     exclude_services_prod_mt = st.sidebar.checkbox("Exclude if > MT for Services", value=True)
     services_prod_gw_threshold = st.sidebar.number_input("Services: Max production threshold (GW)", value=5.0)
     exclude_services_prod_gw = st.sidebar.checkbox("Exclude if > GW for Services", value=True)
-    exclude_services_expansion = st.sidebar.checkbox("Exclude if Services has expansion plan", value=True)
 
+    # expansions for Services
+    st.sidebar.markdown("**Services Expansion** (choose expansions to exclude):")
+    expansions_services = st.sidebar.multiselect("Exclude these expansions for Services", expansions_possible, default=[])
+
+    # ============ RUN FILTER =============
     if uploaded_file and st.sidebar.button("Run"):
         df = load_data(uploaded_file, sheet_name)
         if df is None:
             return
 
         # For 'company', skip "parent" to avoid 'Parent Company'
-        def find_co(*kw): return find_column(df, list(kw), exclude_keywords=["parent"])
+        def find_co(*kw): 
+            return find_column(df, list(kw), exclude_keywords=["parent"])
         company_col = find_co("company") or "Company"
 
-        # Also find 'expansion' column
+        # also find 'expansion' column
         expansion_col = find_column(df, ["expansion"]) or "expansion"
 
         column_mapping = {
@@ -240,24 +256,22 @@ def main():
             "ticker_col":     find_column(df, ["bb","ticker"]) or "BB Ticker",
             "isin_col":       find_column(df, ["isin","equity"]) or "ISIN equity",
             "lei_col":        find_column(df, ["lei"]) or "LEI",
-            # newly added expansion col
             "expansion_col":  expansion_col
         }
 
-        # Filter
         filtered_df = filter_companies(
             df,
-            # Mining
+            # Mining thresholds
             mining_rev_threshold,
             mining_prod_mt_threshold,
             mining_prod_gw_threshold,
-            # Power
+            # Power thresholds
             power_rev_threshold,
             power_prod_threshold_percent,
             power_prod_mt_threshold,
             power_prod_gw_threshold,
             capacity_threshold_mw,
-            # Services
+            # Services thresholds
             services_rev_threshold,
             services_prod_mt_threshold,
             services_prod_gw_threshold,
@@ -276,14 +290,14 @@ def main():
             exclude_services_rev,
             exclude_services_prod_mt,
             exclude_services_prod_gw,
-            # new expansion toggles
-            exclude_mining_expansion,
-            exclude_power_expansion,
-            exclude_services_expansion,
+            # expansions chosen
+            expansions_mining,
+            expansions_power,
+            expansions_services,
             column_mapping
         )
 
-        # Build output
+        # =========== OUTPUT SHEETS ===========
         excluded_cols = [
             column_mapping["company_col"],
             column_mapping["production_col"],
@@ -317,7 +331,7 @@ def main():
             retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
             no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
 
-        # Show stats
+        # =========== STATS =============
         st.subheader("Statistics")
         st.write(f"Total companies: {len(df)}")
         st.write(f"Excluded companies: {len(excluded_df)}")
