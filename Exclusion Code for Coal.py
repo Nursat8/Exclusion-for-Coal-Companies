@@ -4,8 +4,12 @@ import io
 
 def load_data(file, sheet_name):
     """Load the Excel file and extract the selected sheet."""
-    df = pd.read_excel(file, sheet_name=sheet_name)
-    return df
+    try:
+        df = pd.read_excel(file, sheet_name=sheet_name)
+        return df
+    except Exception as e:
+        st.error(f"Error loading sheet '{sheet_name}': {e}")
+        return None
 
 def find_column(df, keywords):
     """Finds a column in df that contains the given keywords (case-insensitive)."""
@@ -74,6 +78,8 @@ def main():
     
     if uploaded_file:
         df = load_data(uploaded_file, sheet_name)
+        if df is None:
+            return
         
         # Dynamically detect column names
         column_mapping = {
@@ -99,7 +105,7 @@ def main():
             no_data_df = df[df[column_mapping["sector_col"]].isna()]
             
             output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 excluded_df.to_excel(writer, sheet_name="Excluded Companies", index=False)
                 retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
                 no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
