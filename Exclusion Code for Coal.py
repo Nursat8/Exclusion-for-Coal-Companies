@@ -69,33 +69,34 @@ def filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_thres
 
 def main():
     st.title("Coal Exclusion Filter")
-    
-    # Move interface to the right using sidebar
     st.sidebar.header("Settings")
     
     # Multiple sector selection
     selected_sectors = st.sidebar.multiselect("Select Sectors", ["Mining", "Power", "Services"], default=["Mining", "Power", "Services"])
     
-    # Thresholds per sector with individual exclusion toggles
+    # Organizing thresholds per sector with individual exclusion toggles
+    st.sidebar.subheader("Mining Settings")
     exclude_mining = st.sidebar.checkbox("Enable Exclusion for Mining", value=True)
-    mining_rev_threshold = st.sidebar.number_input("Mining: Max coal revenue (%)", value=5.0)
+    mining_rev_threshold = st.sidebar.number_input("Max coal revenue (%)", value=5.0)
     exclude_mining_rev = st.sidebar.checkbox("Enable Mining Revenue Exclusion", value=True)
-    mining_prod_threshold = st.sidebar.number_input("Mining: Max production threshold (e.g., 10MT)", value=10.0)
+    mining_prod_threshold = st.sidebar.number_input("Max production threshold (e.g., 10MT)", value=10.0)
     exclude_mining_prod = st.sidebar.checkbox("Enable Mining Production Exclusion", value=True)
     
+    st.sidebar.subheader("Power Settings")
     exclude_power = st.sidebar.checkbox("Enable Exclusion for Power", value=True)
-    power_rev_threshold = st.sidebar.number_input("Power: Max coal revenue (%)", value=20.0)
+    power_rev_threshold = st.sidebar.number_input("Max coal revenue (%)", value=20.0)
     exclude_power_rev = st.sidebar.checkbox("Enable Power Revenue Exclusion", value=True)
-    power_prod_threshold = st.sidebar.number_input("Power: Max coal power production (%)", value=20.0)
+    power_prod_threshold = st.sidebar.number_input("Max coal power production (%)", value=20.0)
     exclude_power_prod = st.sidebar.checkbox("Enable Power Production Exclusion", value=True)
-    power_prod_threshold_mt = st.sidebar.number_input("Power: Max production threshold (e.g., 10MT)", value=10.0)
+    power_prod_threshold_mt = st.sidebar.number_input("Max production threshold (e.g., 10MT)", value=10.0, disabled=True)
     exclude_power_prod_mt = st.sidebar.checkbox("Enable Power '>10MT' Exclusion", value=True)
     capacity_threshold = st.sidebar.number_input("Max installed coal power capacity (MW)", value=10000.0)
     exclude_capacity = st.sidebar.checkbox("Enable Power Capacity Exclusion", value=True)
     
-    exclude_services = st.sidebar.checkbox("Enable Exclusion for Services", value=True)
-    services_rev_threshold = st.sidebar.number_input("Services: Max coal revenue (%)", value=10.0)
-    exclude_services_rev = st.sidebar.checkbox("Enable Services Revenue Exclusion", value=True)
+    st.sidebar.subheader("Services Settings")
+    exclude_services = st.sidebar.checkbox("Enable Exclusion for Services", value=False)
+    services_rev_threshold = st.sidebar.number_input("Max coal revenue (%)", value=10.0, disabled=True)
+    exclude_services_rev = st.sidebar.checkbox("Enable Services Revenue Exclusion", value=False)
     
     uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
     
@@ -106,6 +107,12 @@ def main():
                                        exclude_mining, exclude_power, exclude_services,
                                        exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod, exclude_power_prod_mt, exclude_capacity, exclude_services_rev)
         excluded_df = filtered_df[filtered_df["Excluded"] == True][["Company", "BB Ticker", "ISIN equity", "LEI", "Coal Share of Revenue", "Coal Share of Power Production", ">10MT / >5GW", "Exclusion Reasons"]]
+        
+        # Display statistics
+        st.subheader("Statistics")
+        st.write(f"Total companies: {len(filtered_df)}")
+        st.write(f"Excluded companies: {len(excluded_df)}")
+        st.write(f"Non-excluded companies: {len(filtered_df) - len(excluded_df)}")
         
         # Display results
         st.subheader("Excluded Companies")
