@@ -79,32 +79,34 @@ def main():
         df = load_data(uploaded_file)
         
         # Dynamically detect column names
-        sector_col = find_column(df, ["coal", "industry", "sector"]) or "Coal Industry Sector"
-        coal_rev_col = find_column(df, ["coal", "share", "revenue"]) or "Coal Share of Revenue"
-        coal_power_col = find_column(df, ["coal", "share", "power"]) or "Coal Share of Power Production"
-        capacity_col = find_column(df, ["installed", "coal", "power", "capacity"]) or "Installed Coal Power Capacity\n(MW)"
-        production_col = find_column(df, [">10mt", ">5gw"]) or ">10MT / >5GW"
+        column_mapping = {
+            "sector_col": find_column(df, ["industry", "sector"]) or "Coal Industry Sector",
+            "coal_rev_col": find_column(df, ["coal", "share", "revenue"]) or "Coal Share of Revenue",
+            "coal_power_col": find_column(df, ["coal", "share", "power"]) or "Coal Share of Power Production",
+            "capacity_col": find_column(df, ["installed", "coal", "power", "capacity"]) or "Installed Coal Power Capacity (MW)",
+            "production_col": find_column(df, [">10mt", ">5gw"]) or ">10MT / >5GW"
+        }
         
-        # Multiple sector selection
         selected_sectors = st.sidebar.multiselect("Select Sectors", ["Mining", "Power", "Services"], default=["Mining", "Power", "Services"])
         
-        # Threshold Inputs
-        mining_rev_threshold = st.sidebar.number_input("Mining: Max coal revenue (%)", value=5.0)
-        power_rev_threshold = st.sidebar.number_input("Power: Max coal revenue (%)", value=20.0)
-        services_rev_threshold = st.sidebar.number_input("Services: Max coal revenue (%)", value=10.0)
-        power_prod_threshold = st.sidebar.number_input("Power: Max coal power production (%)", value=20.0)
-        mining_prod_threshold = st.sidebar.number_input("Mining: Max production threshold (e.g., 10MT)", value=10.0)
-        capacity_threshold = st.sidebar.number_input("Max installed coal power capacity (MW)", value=10000.0)
+        with st.sidebar.expander("Threshold Settings"):
+            mining_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=5.0)
+            power_rev_threshold = st.number_input("Power: Max coal revenue (%)", value=20.0)
+            services_rev_threshold = st.number_input("Services: Max coal revenue (%)", value=10.0)
+            power_prod_threshold = st.number_input("Power: Max coal power production (%)", value=20.0)
+            mining_prod_threshold = st.number_input("Mining: Max production threshold (e.g., 10MT)", value=10.0)
+            capacity_threshold = st.number_input("Max installed coal power capacity (MW)", value=10000.0)
         
         if st.sidebar.button("Run"):
             filtered_df = filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, capacity_threshold,
                                            True, True, False,
                                            True, True, True, True, True, False,
-                                           sector_col, coal_rev_col, coal_power_col, capacity_col, production_col)
-            excluded_df = filtered_df[filtered_df["Excluded"] == True][["Company", "BB Ticker", "ISIN equity", "LEI", coal_rev_col, coal_power_col, capacity_col, production_col, "Exclusion Reasons"]]
+                                           **column_mapping)
+            excluded_df = filtered_df[filtered_df["Excluded"] == True][["Company", "BB Ticker", "ISIN equity", "LEI", column_mapping["coal_rev_col"], column_mapping["coal_power_col"], column_mapping["capacity_col"], column_mapping["production_col"], "Exclusion Reasons"]]
             
             st.subheader("Excluded Companies")
-            st.dataframe(excluded_df)
+            st.dataframe(excluded_df.style.set_table_styles([
+                {"selector": "th", "props": [("font-size", "14px"), ("text-align", "center")]}]))
             
             st.download_button("Download Results", data=excluded_df.to_csv(index=False), file_name="filtered_results.csv")
 
