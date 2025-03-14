@@ -86,40 +86,35 @@ def main():
             "lei_col": find_column(df, ["lei"]) or "LEI"
         }
         
-        with st.sidebar.expander("Mining Settings"):
-            exclude_mining = st.checkbox("Enable Exclusion for Mining", value=True)
-            mining_rev_threshold = st.number_input("Max coal revenue (%)", value=5.0)
-            exclude_mining_rev = st.checkbox("Enable Mining Revenue Exclusion", value=True)
-            mining_prod_threshold = st.number_input("Max production threshold (e.g., 10MT)", value=10.0)
-            exclude_mining_prod = st.checkbox("Enable Mining Production Exclusion", value=True)
-        
-        with st.sidebar.expander("Power Settings"):
-            exclude_power = st.checkbox("Enable Exclusion for Power", value=True)
-            power_rev_threshold = st.number_input("Max coal revenue (%)", value=20.0)
-            exclude_power_rev = st.checkbox("Enable Power Revenue Exclusion", value=True)
-            power_prod_threshold = st.number_input("Max coal power production (%)", value=20.0)
-            exclude_power_prod = st.checkbox("Enable Power Production Exclusion", value=True)
-            capacity_threshold = st.number_input("Max installed coal power capacity (MW)", value=10000.0)
-            exclude_capacity = st.checkbox("Enable Power Capacity Exclusion", value=True)
-        
-        with st.sidebar.expander("Services Settings"):
-            exclude_services = st.checkbox("Enable Exclusion for Services", value=False)
-            services_rev_threshold = st.number_input("Services: Max coal revenue (%)", value=10.0)
-            exclude_services_rev = st.checkbox("Enable Services Revenue Exclusion", value=False)
-        
         if st.sidebar.button("Run"):
-            filtered_df = filter_companies(df, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, capacity_threshold,
-                                           exclude_mining, exclude_power, exclude_services,
-                                           exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod, exclude_capacity, exclude_services_rev,
+            filtered_df = filter_companies(df, 5.0, 20.0, 10.0, 20.0, 10.0, 10000.0,
+                                           True, True, True,
+                                           True, True, True, True, True, True,
                                            column_mapping)
+            
+            excluded_df = filtered_df[filtered_df["Excluded"] == True][[column_mapping["company_col"], column_mapping["production_col"], column_mapping["capacity_col"],
+                                                                          column_mapping["coal_rev_col"], column_mapping["sector_col"], column_mapping["ticker_col"],
+                                                                          column_mapping["isin_col"], column_mapping["lei_col"], "Exclusion Reasons"]]
+            retained_df = filtered_df[filtered_df["Excluded"] == False]
+            no_data_df = df[df[column_mapping["sector_col"]].isna()]
+            
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                excluded_df.to_excel(writer, sheet_name="Excluded Companies", index=False)
+                retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
+                no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
+                writer.close()
             
             st.subheader("Statistics")
             st.write(f"Total companies: {len(df)}")
-            st.write(f"Excluded companies: {len(filtered_df[filtered_df['Excluded'] == True])}")
-            st.write(f"Retained companies: {len(filtered_df[filtered_df['Excluded'] == False])}")
+            st.write(f"Excluded companies: {len(excluded_df)}")
+            st.write(f"Retained companies: {len(retained_df)}")
+            st.write(f"Companies with no data: {len(no_data_df)}")
             
-            st.subheader("Filtered Companies")
-            st.dataframe(filtered_df)
+            st.subheader("Excluded Companies")
+            st.dataframe(excluded_df)
+            
+            st.download_button("Download Results", data=output.getvalue(), file_name="filtered_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 if __name__ == "__main__":
     main()
