@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 import io
 
-def load_data(file):
-    """Load the Excel file and extract the GCEL 2024 sheet."""
-    df = pd.read_excel(file, sheet_name="GCEL 2024")
+def load_data(file, sheet_name):
+    """Load the Excel file and extract the selected sheet."""
+    df = pd.read_excel(file, sheet_name=sheet_name)
     return df
 
 def find_column(df, keywords):
@@ -39,7 +39,7 @@ def filter_companies(df, mining_rev_threshold, power_rev_threshold, services_rev
         
         # Apply thresholds based on selected sectors
         if is_mining and exclude_mining:
-            if exclude_mining_rev and coal_rev * 100 > mining_rev_threshold:  # Convert decimal to percentage
+            if exclude_mining_rev and coal_rev * 100 > mining_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev * 100}% > {mining_rev_threshold}% (Mining)")
             if exclude_mining_prod and ">10mt" in str(row.get(column_mapping.get("production_col", ""), "")).lower():
                 reasons.append("Company listed as '>10Mt' producer (Mining)")
@@ -70,8 +70,10 @@ def main():
     st.sidebar.header("Settings")
     
     uploaded_file = st.sidebar.file_uploader("Upload your Excel file", type=["xlsx"])
+    sheet_name = st.sidebar.text_input("Enter the sheet name to check", value="GCEL 2024")
+    
     if uploaded_file:
-        df = load_data(uploaded_file)
+        df = load_data(uploaded_file, sheet_name)
         
         # Dynamically detect column names
         column_mapping = {
@@ -92,9 +94,7 @@ def main():
                                            True, True, True, True, True, True,
                                            column_mapping)
             
-            excluded_df = filtered_df[filtered_df["Excluded"] == True][[column_mapping["company_col"], column_mapping["production_col"], column_mapping["capacity_col"],
-                                                                          column_mapping["coal_rev_col"], column_mapping["sector_col"], column_mapping["ticker_col"],
-                                                                          column_mapping["isin_col"], column_mapping["lei_col"], "Exclusion Reasons"]]
+            excluded_df = filtered_df[filtered_df["Excluded"] == True]
             retained_df = filtered_df[filtered_df["Excluded"] == False]
             no_data_df = df[df[column_mapping["sector_col"]].isna()]
             
