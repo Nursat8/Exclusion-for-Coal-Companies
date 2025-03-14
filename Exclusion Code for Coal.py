@@ -118,9 +118,12 @@ def main():
                                            exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod, exclude_capacity, exclude_services_rev,
                                            column_mapping)
             
-            excluded_df = filtered_df[filtered_df["Excluded"] == True][[column_mapping["company_col"], column_mapping["production_col"], column_mapping["capacity_col"],
-                                                                          column_mapping["coal_rev_col"], column_mapping["sector_col"], column_mapping["ticker_col"],
-                                                                          column_mapping["isin_col"], column_mapping["lei_col"], "Exclusion Reasons"]]
+            excluded_df = filtered_df[filtered_df["Excluded"] == True]
+            
+            st.subheader("Statistics")
+            st.write(f"Total companies: {len(df)}")
+            st.write(f"Excluded companies: {len(excluded_df)}")
+            st.write(f"Non-excluded companies: {len(df) - len(excluded_df)}")
             
             st.subheader("Excluded Companies")
             st.dataframe(excluded_df)
