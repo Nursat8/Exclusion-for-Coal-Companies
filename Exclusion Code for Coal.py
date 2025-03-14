@@ -10,7 +10,7 @@ def find_column(df, keywords):
     """Finds a column in df that contains the given keywords (case-insensitive)."""
     for col in df.columns:
         col_lower = col.lower().strip()
-        if all(kw in col_lower for kw in keywords):
+        if all(kw.lower() in col_lower for kw in keywords):
             return col
     return None  # Return None if no matching column is found
 
@@ -83,8 +83,8 @@ def main():
             "sector_col": find_column(df, ["industry", "sector"]) or "Coal Industry Sector",
             "coal_rev_col": find_column(df, ["coal", "share", "revenue"]) or "Coal Share of Revenue",
             "coal_power_col": find_column(df, ["coal", "share", "power"]) or "Coal Share of Power Production",
-            "capacity_col": find_column(df, ["installed", "coal", "power", "capacity"]) or "Installed Coal Power Capacity (MW)",
-            "production_col": find_column(df, [">10mt", ">5gw"]) or ">10MT / >5GW"
+            "capacity_col": find_column(df, ["installed", "coal", "power", "capacity"]) or "Installed Coal Power Capacity\n(MW)",
+            "production_col": find_column(df, ["10mt", "5gw"]) or ">10MT / >5GW"
         }
         
         with st.sidebar.expander("Mining Settings"):
@@ -109,16 +109,11 @@ def main():
             exclude_services_rev = st.checkbox("Enable Services Revenue Exclusion", value=False)
         
         if st.sidebar.button("Run"):
-            filtered_df = filter_companies(df, ["Mining", "Power", "Services"], mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, capacity_threshold,
+            filtered_df = filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, capacity_threshold,
                                            exclude_mining, exclude_power, exclude_services,
                                            exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod, exclude_capacity, exclude_services_rev,
                                            column_mapping)
             excluded_df = filtered_df[filtered_df["Excluded"] == True][["Company", "BB Ticker", "ISIN equity", "LEI", column_mapping["coal_rev_col"], column_mapping["coal_power_col"], column_mapping["capacity_col"], column_mapping["production_col"], "Exclusion Reasons"]]
-            
-            st.subheader("Statistics")
-            st.write(f"Total companies: {len(filtered_df)}")
-            st.write(f"Excluded companies: {len(excluded_df)}")
-            st.write(f"Non-excluded companies: {len(filtered_df) - len(excluded_df)}")
             
             st.subheader("Excluded Companies")
             st.dataframe(excluded_df)
