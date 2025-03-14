@@ -92,7 +92,9 @@ def main():
                                            True, True, True, True, True, True,
                                            column_mapping)
             
-            excluded_df = filtered_df[filtered_df["Excluded"] == True]
+            excluded_df = filtered_df[filtered_df["Excluded"] == True][[column_mapping["company_col"], column_mapping["production_col"], column_mapping["capacity_col"],
+                                                                          column_mapping["coal_rev_col"], column_mapping["sector_col"], column_mapping["ticker_col"],
+                                                                          column_mapping["isin_col"], column_mapping["lei_col"], "Exclusion Reasons"]]
             retained_df = filtered_df[filtered_df["Excluded"] == False]
             no_data_df = df[df[column_mapping["sector_col"]].isna()]
             
