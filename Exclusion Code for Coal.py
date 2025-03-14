@@ -195,7 +195,8 @@ def main():
                     excluded_df.to_excel(writer, sheet_name="Excluded Companies", index=False)
                     retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
                     no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
-                    writer.save()
+                    writer.close()
+
 
                 # Statistics
                 st.subheader("Statistics")
