@@ -13,22 +13,31 @@ def load_data(file, sheet_name):
 
 def find_column(df, must_keywords, exclude_keywords=None):
     """
-    Finds a column in df that contains all 'must_keywords' (case-insensitive)
-    and excludes any column containing any 'exclude_keywords'.
+    Finds a column in df that contains all must_keywords (case-insensitive)
+    and excludes columns containing any exclude_keywords.
     Returns the first matching column name or None if no match.
+    Also prints debug info to help troubleshoot.
     """
     if exclude_keywords is None:
         exclude_keywords = []
 
+    st.write(f"<Debug> Searching columns with must={must_keywords}, exclude={exclude_keywords}")
+    found_candidates = []
     for col in df.columns:
         col_lower = col.lower().strip()
-        # must have all must_keywords
+        # must contain all must_keywords
         if all(mk.lower() in col_lower for mk in must_keywords):
-            # skip if any exclude_keyword is found
+            # skip if any exclude keyword
             if any(ek.lower() in col_lower for ek in exclude_keywords):
+                st.write(f"<Debug> Skipped column '{col}' because it matches exclude_keywords={exclude_keywords}")
                 continue
-            return col
+            found_candidates.append(col)
 
+    if found_candidates:
+        chosen = found_candidates[0]
+        st.write(f"<Debug> Chosen column for must={must_keywords} is '{chosen}'")
+        return chosen
+    st.write(f"<Debug> No columns found for must={must_keywords}, exclude={exclude_keywords}")
     return None
 
 def filter_companies(
@@ -94,7 +103,6 @@ def filter_companies(
             if exclude_services_rev and (coal_rev * 100) > services_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev * 100:.2f}% > {services_rev_threshold}% (Services)")
 
-        # Mark row excluded if reasons found
         exclusion_flags.append(bool(reasons))
         exclusion_reasons.append("; ".join(reasons) if reasons else "")
 
@@ -106,12 +114,12 @@ def main():
     st.set_page_config(page_title="Coal Exclusion Filter", layout="wide")
     st.title("Coal Exclusion Filter")
 
-    # ---------------- FILE & SHEET SETTINGS ----------------
+    # ================= FILE & SHEET SETTINGS =================
     st.sidebar.header("File & Sheet")
     sheet_name = st.sidebar.text_input("Sheet name to check", value="GCEL 2024")
     uploaded_file = st.sidebar.file_uploader("Upload your Excel file", type=["xlsx"])
 
-    # ---------------- SECTOR THRESHOLDS ----------------
+    # ================= SECTOR THRESHOLDS =================
     st.sidebar.header("Sector Thresholds")
 
     with st.sidebar.expander("Mining Settings", expanded=True):
@@ -135,14 +143,13 @@ def main():
         services_rev_threshold = st.number_input("Services: Max coal revenue (%)", value=10.0)
         exclude_services_rev = st.checkbox("Enable Services Revenue Exclusion", value=False)
 
-    # Run the filter once the user clicks "Run"
+    # ================= RUN =================
     if uploaded_file and st.sidebar.button("Run"):
         df = load_data(uploaded_file, sheet_name)
         if df is None:
-            return  # error shown
+            return
 
-        # Dynamically detect columns
-        # For 'company', skip "parent"
+        # ================= DETECT COLUMNS =================
         company_col = find_column(df, must_keywords=["company"], exclude_keywords=["parent"]) or "Company"
 
         column_mapping = {
@@ -157,7 +164,7 @@ def main():
             "lei_col": find_column(df, ["lei"]) or "LEI",
         }
 
-        # Filter the DataFrame
+        # ================= FILTER =================
         filtered_df = filter_companies(
             df,
             mining_rev_threshold,
@@ -178,8 +185,9 @@ def main():
             column_mapping
         )
 
-        # Prepare columns for output
-        exclude_cols = [
+        # ================= BUILD FINAL SHEETS =================
+        # Excluded
+        excluded_cols = [
             column_mapping["company_col"],
             column_mapping["production_col"],
             column_mapping["capacity_col"],
@@ -190,8 +198,9 @@ def main():
             column_mapping["lei_col"],
             "Exclusion Reasons"
         ]
+        excluded_df = filtered_df[filtered_df["Excluded"] == True][excluded_cols]
 
-        # Retained / no-data share these (no Exclusion Reasons)
+        # Retained
         retained_cols = [
             column_mapping["company_col"],
             column_mapping["production_col"],
@@ -202,14 +211,12 @@ def main():
             column_mapping["isin_col"],
             column_mapping["lei_col"]
         ]
-
-        excluded_df = filtered_df[filtered_df["Excluded"] == True][exclude_cols]
         retained_df = filtered_df[filtered_df["Excluded"] == False][retained_cols]
 
-        no_data_mask = df[column_mapping["sector_col"]].isna()
-        no_data_df = df[no_data_mask][retained_cols]
+        # No Data
+        no_data_df = df[df[column_mapping["sector_col"]].isna()][retained_cols]
 
-        # Create an in-memory Excel file with 3 sheets
+        # Write results to in-memory Excel
         import openpyxl
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -217,7 +224,7 @@ def main():
             retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
             no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
 
-        # Show stats
+        # ================= STATISTICS =================
         st.subheader("Statistics")
         st.write(f"Total companies: {len(df)}")
         st.write(f"Excluded companies: {len(excluded_df)}")
@@ -227,7 +234,7 @@ def main():
         st.subheader("Excluded Companies")
         st.dataframe(excluded_df)
 
-        # Provide a download button
+        # Provide a download
         st.download_button(
             "Download Results",
             data=output.getvalue(),
