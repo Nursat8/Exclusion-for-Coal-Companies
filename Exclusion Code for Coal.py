@@ -24,7 +24,7 @@ def filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_thres
     
     for _, row in df.iterrows():
         reasons = []
-        sector = str(row.get(column_mapping["sector_col"], "")).strip().lower()
+        sector = str(row.get(column_mapping.get("sector_col", ""), "")).strip().lower()
         
         # Skip if no valid sector data
         if sector in ["", "ni", "na", "/"]:
@@ -38,15 +38,15 @@ def filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_thres
         is_services = "services" in sector and "Services" in selected_sectors
         
         # Extract numerical values, safely handling missing or non-numeric entries
-        coal_rev = pd.to_numeric(row.get(column_mapping["coal_rev_col"], 0), errors="coerce") or 0
-        coal_power_share = pd.to_numeric(row.get(column_mapping["coal_power_col"], 0), errors="coerce") or 0
-        installed_capacity = pd.to_numeric(row.get(column_mapping["capacity_col"], 0), errors="coerce") or 0
+        coal_rev = pd.to_numeric(row.get(column_mapping.get("coal_rev_col", ""), 0), errors="coerce") or 0
+        coal_power_share = pd.to_numeric(row.get(column_mapping.get("coal_power_col", ""), 0), errors="coerce") or 0
+        installed_capacity = pd.to_numeric(row.get(column_mapping.get("capacity_col", ""), 0), errors="coerce") or 0
         
         # Apply thresholds based on selected sectors
         if is_mining and exclude_mining:
             if exclude_mining_rev and coal_rev > mining_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev}% > {mining_rev_threshold}% (Mining)")
-            if exclude_mining_prod and ">10mt" in str(row.get(column_mapping["production_col"], "")).lower():
+            if exclude_mining_prod and ">10mt" in str(row.get(column_mapping.get("production_col", ""), "")).lower():
                 reasons.append("Company listed as '>10Mt' producer (Mining)")
         
         if is_power and exclude_power:
@@ -87,33 +87,17 @@ def main():
             "production_col": find_column(df, ["10mt", "5gw"]) or ">10MT / >5GW"
         }
         
-        with st.sidebar.expander("Mining Settings"):
-            exclude_mining = st.checkbox("Enable Exclusion for Mining", value=True)
-            mining_rev_threshold = st.number_input("Max coal revenue (%)", value=5.0)
-            exclude_mining_rev = st.checkbox("Enable Mining Revenue Exclusion", value=True)
-            mining_prod_threshold = st.number_input("Max production threshold (e.g., 10MT)", value=10.0)
-            exclude_mining_prod = st.checkbox("Enable Mining Production Exclusion", value=True)
-        
-        with st.sidebar.expander("Power Settings"):
-            exclude_power = st.checkbox("Enable Exclusion for Power", value=True)
-            power_rev_threshold = st.number_input("Max coal revenue (%)", value=20.0)
-            exclude_power_rev = st.checkbox("Enable Power Revenue Exclusion", value=True)
-            power_prod_threshold = st.number_input("Max coal power production (%)", value=20.0)
-            exclude_power_prod = st.checkbox("Enable Power Production Exclusion", value=True)
-            capacity_threshold = st.number_input("Max installed coal power capacity (MW)", value=10000.0)
-            exclude_capacity = st.checkbox("Enable Power Capacity Exclusion", value=True)
-        
-        with st.sidebar.expander("Services Settings"):
-            exclude_services = st.checkbox("Enable Exclusion for Services", value=False)
-            services_rev_threshold = st.number_input("Max coal revenue (%)", value=10.0)
-            exclude_services_rev = st.checkbox("Enable Services Revenue Exclusion", value=False)
+        selected_sectors = st.sidebar.multiselect("Select Sectors", ["Mining", "Power", "Services"], default=["Mining", "Power", "Services"])
         
         if st.sidebar.button("Run"):
-            filtered_df = filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, capacity_threshold,
-                                           exclude_mining, exclude_power, exclude_services,
-                                           exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod, exclude_capacity, exclude_services_rev,
+            filtered_df = filter_companies(df, selected_sectors, 5.0, 20.0, 10.0, 20.0, 10.0, 10000.0,
+                                           True, True, False,
+                                           True, True, True, True, True, False,
                                            column_mapping)
-            excluded_df = filtered_df[filtered_df["Excluded"] == True][["Company", "BB Ticker", "ISIN equity", "LEI", column_mapping["coal_rev_col"], column_mapping["coal_power_col"], column_mapping["capacity_col"], column_mapping["production_col"], "Exclusion Reasons"]]
+            excluded_df = filtered_df[filtered_df["Excluded"] == True][["Company", "BB Ticker", "ISIN equity", "LEI", column_mapping.get("coal_rev_col", "Coal Share of Revenue"),
+                                                                          column_mapping.get("coal_power_col", "Coal Share of Power Production"),
+                                                                          column_mapping.get("capacity_col", "Installed Coal Power Capacity (MW)"),
+                                                                          column_mapping.get("production_col", ">10MT / >5GW"), "Exclusion Reasons"]]
             
             st.subheader("Excluded Companies")
             st.dataframe(excluded_df)
