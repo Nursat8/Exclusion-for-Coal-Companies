@@ -91,8 +91,6 @@ def main():
             "lei_col": find_column(df, ["lei"]) or "LEI"
         }
         
-        selected_sectors = st.sidebar.multiselect("Select Sectors", ["Mining", "Power", "Services"], default=["Mining", "Power", "Services"])
-        
         with st.sidebar.expander("Mining Settings"):
             exclude_mining = st.checkbox("Enable Exclusion for Mining", value=True)
             mining_rev_threshold = st.number_input("Max coal revenue (%)", value=5.0)
@@ -110,7 +108,7 @@ def main():
             exclude_capacity = st.checkbox("Enable Power Capacity Exclusion", value=True)
         
         if st.sidebar.button("Run"):
-            filtered_df = filter_companies(df, selected_sectors, mining_rev_threshold, power_rev_threshold, services_rev_threshold, power_prod_threshold, mining_prod_threshold, capacity_threshold,
+            filtered_df = filter_companies(df, ["Mining", "Power", "Services"], mining_rev_threshold, power_rev_threshold, 10.0, power_prod_threshold, mining_prod_threshold, capacity_threshold,
                                            exclude_mining, exclude_power, False,
                                            exclude_mining_rev, exclude_mining_prod, exclude_power_rev, exclude_power_prod, exclude_capacity, False,
                                            column_mapping)
