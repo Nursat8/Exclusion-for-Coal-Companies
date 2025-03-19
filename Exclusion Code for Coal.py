@@ -11,13 +11,13 @@ import openpyxl
 def load_spglobal_data(file, sheet_name):
     """
     Load the SPGlobal file, skipping the first 5 rows so row #6 is treated as headers.
-    In pandas, header=5 (0-based) => row #6 in Excel is the header.
+    In pandas, header=5 => row #6 in Excel is the header line.
     Flatten columns if there's a multi-level header.
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=5)
 
-        # If there's a multi-level header, flatten it; otherwise just strip spaces
+        # Flatten multi-level columns if needed
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [
                 ' '.join(str(x).strip() for x in col if x not in (None, ''))
@@ -34,11 +34,10 @@ def load_spglobal_data(file, sheet_name):
 def load_urgewald_data(file, sheet_name):
     """
     Load the Urgewald GCEL file normally (assuming row #1 is header).
-    Adjust if you also need to skip rows for GCEL.
+    Flatten columns if multi-level.
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name)
-        # If needed, flatten columns here as well:
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [
                 ' '.join(str(x).strip() for x in col if x not in (None, ''))
@@ -67,9 +66,7 @@ def find_column(df, must_keywords, exclude_keywords=None):
 
     for col in df.columns:
         col_lower = col.lower().strip()
-        # must contain all must_keywords
         if all(mk.lower() in col_lower for mk in must_keywords):
-            # skip if any exclude keywords found
             if any(ex_kw.lower() in col_lower for ex_kw in exclude_keywords):
                 continue
             return col
@@ -115,10 +112,9 @@ def filter_companies(
     1) Toggles for excluding Mining, Power, Services.
     2) Single expansions_global for expansions.
     3) PARTIAL MATCH for SPGlobal sectors using keywords:
-       - "Generation (Thermal Coal)": must contain "generation" AND "thermal"
-       - "Thermal Coal Mining": must contain "thermal", "coal", "mining"
-       - "Metallurgical Coal Mining": must contain "metallurgical", "coal", "mining"
-       plus row's numeric > user threshold and the user toggled that exclusion on.
+       - "generation" + "thermal"
+       - "thermal" + "coal" + "mining"
+       - "metallurgical" + "coal" + "mining"
     """
     exclusion_flags = []
     exclusion_reasons = []
@@ -151,7 +147,7 @@ def filter_companies(
         # ===== MINING =====
         if is_mining and exclude_mining:
             if exclude_mining_prod_mt and ">10mt" in prod_val:
-                reasons.append(f"Mining production suggests >10MT vs threshold {mining_prod_mt_threshold}MT")
+                reasons.append(f"Mining production >10MT vs {mining_prod_mt_threshold}MT")
 
         # ===== POWER =====
         if is_power and exclude_power:
@@ -179,19 +175,19 @@ def filter_companies(
         # ===== SPGlobal COAL SECTORS (PARTIAL MATCH) =====
         # Generation (Thermal Coal)
         if exclude_generation_thermal_coal:
-            if ("generation" in s_lc and "thermal" in s_lc):
+            if "generation" in s_lc and "thermal" in s_lc:
                 if coal_share > gen_thermal_coal_threshold:
                     reasons.append(f"Generation (Thermal Coal) {coal_share:.2f} > {gen_thermal_coal_threshold}")
 
         # Thermal Coal Mining
         if exclude_thermal_coal_mining:
-            if ("thermal" in s_lc and "coal" in s_lc and "mining" in s_lc):
+            if "thermal" in s_lc and "coal" in s_lc and "mining" in s_lc:
                 if coal_share > thermal_coal_mining_threshold:
                     reasons.append(f"Thermal Coal Mining {coal_share:.2f} > {thermal_coal_mining_threshold}")
 
         # Metallurgical Coal Mining
         if exclude_metallurgical_coal_mining:
-            if ("metallurgical" in s_lc and "coal" in s_lc and "mining" in s_lc):
+            if "metallurgical" in s_lc and "coal" in s_lc and "mining" in s_lc:
                 if coal_share > metallurgical_coal_mining_threshold:
                     reasons.append(f"Metallurgical Coal Mining {coal_share:.2f} > {metallurgical_coal_mining_threshold}")
 
@@ -215,7 +211,7 @@ def main():
     st.sidebar.header("File & Sheet Settings")
 
     # 1) SPGlobal file (row #6 => header=5)
-    spglobal_sheet = st.sidebar.text_input("SPGlobal Sheet Name", value="SPGlobalSheet")
+    spglobal_sheet = st.sidebar.text_input("SPGlobal Sheet Name", value="Sheet1")
     spglobal_file  = st.sidebar.file_uploader("Upload SPGlobal Excel file", type=["xlsx"])
 
     # 2) Urgewald GCEL file (row #1 => normal read)
@@ -247,7 +243,7 @@ def main():
     services_rev_threshold = st.sidebar.number_input("Services: Max coal revenue (%)", value=10.0)
     exclude_services_rev = st.sidebar.checkbox("Exclude if services rev threshold exceeded", value=False)
 
-    # ============ GLOBAL EXPANSION EXCLUSION =============
+    # ============ GLOBAL EXPANSION EXCLUSION ============
     st.sidebar.header("Global Expansion Exclusion")
     expansions_possible = ["mining", "infrastructure", "power", "subsidiary of a coal developer"]
     expansions_global = st.sidebar.multiselect(
@@ -280,25 +276,31 @@ def main():
         if spglobal_df is None or urgewald_df is None:
             return
 
-        # Combine & deduplicate
+        # Combine
         combined_df = pd.concat([spglobal_df, urgewald_df], ignore_index=True)
-        combined_df.drop_duplicates(inplace=True)
 
-        # Identify columns automatically
+        # ============ DEDUP USING SUBSET ============
+        # Let's assume we deduplicate by [Company, Ticker, ISIN].
+        # We'll find those columns with find_column or default to some name.
+        # Then do drop_duplicates(subset=[...]).
         def find_co(*kw): 
             return find_column(combined_df, list(kw), exclude_keywords=["parent"])
 
-        company_col = find_co("company") or "Company"
-        expansion_col = find_column(combined_df, ["expansion"]) or "expansion"
+        company_col    = find_co("company") or "Company"
+        ticker_col     = find_co("bb","ticker") or "BB Ticker"
+        isin_col       = find_co("isin","equity") or "ISIN equity"
 
-        sector_col   = find_co("industry","sector") or "Coal Industry Sector"
-        coal_rev_col = find_co("coal","share","revenue") or "Coal Share of Revenue"
+        # sector, expansions, etc.
+        sector_col     = find_co("industry","sector") or "Coal Industry Sector"
+        coal_rev_col   = find_co("coal","share","revenue") or "Coal Share of Revenue"
         coal_power_col = find_co("coal","share","power") or "Coal Share of Power Production"
         capacity_col   = find_co("installed","coal","power","capacity") or "Installed Coal Power Capacity (MW)"
         production_col = find_co("10mt","5gw") or ">10MT / >5GW"
-        ticker_col     = find_co("bb","ticker") or "BB Ticker"
-        isin_col       = find_co("isin","equity") or "ISIN equity"
-        lei_col        = find_co("lei",) or "LEI"
+        lei_col        = find_co("lei") or "LEI"
+        expansion_col  = find_co("expansion") or "expansion"
+
+        # Now deduplicate by [company_col, ticker_col, isin_col]
+        combined_df.drop_duplicates(subset=[company_col, ticker_col, isin_col], inplace=True)
 
         column_mapping = {
             "sector_col":    sector_col,
@@ -318,20 +320,20 @@ def main():
         combined_df["Thermal Coal Mining Share"]       = np.nan
         combined_df["Metallurgical Coal Mining Share"] = np.nan
 
-        # PARTIAL matching for these 3 columns
+        # Fill them if partial match of sector
         for i, row in combined_df.iterrows():
             sec_val = str(row.get(sector_col, "")).strip().lower()
             val = pd.to_numeric(row.get(coal_rev_col, 0), errors="coerce") or 0.0
 
-            # Generation (Thermal Coal) => must contain "generation" + "thermal"
+            # Generation (Thermal Coal)
             if "generation" in sec_val and "thermal" in sec_val:
                 combined_df.at[i, "Generation (Thermal Coal) Share"] = val
 
-            # Thermal Coal Mining => must contain "thermal" + "coal" + "mining"
+            # Thermal Coal Mining
             if "thermal" in sec_val and "coal" in sec_val and "mining" in sec_val:
                 combined_df.at[i, "Thermal Coal Mining Share"] = val
 
-            # Metallurgical Coal Mining => must contain "metallurgical" + "coal" + "mining"
+            # Metallurgical Coal Mining
             if "metallurgical" in sec_val and "coal" in sec_val and "mining" in sec_val:
                 combined_df.at[i, "Metallurgical Coal Mining Share"] = val
 
@@ -355,7 +357,6 @@ def main():
             exclude_power_prod_percent,
             exclude_capacity_mw,
             exclude_services_rev,
-            # GLOBAL expansions
             expansions_global,
             column_mapping,
             # SPGlobal thresholds + toggles
@@ -407,9 +408,9 @@ def main():
             retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
             no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
 
-        # Show stats
+        # Statistics
         st.subheader("Statistics")
-        st.write(f"Total companies (after merge & dedup): {len(filtered_df)}")
+        st.write(f"Total companies (after dedup): {len(filtered_df)}")
         st.write(f"Excluded companies: {len(excluded_df)}")
         st.write(f"Retained companies: {len(retained_df)}")
         st.write(f"Companies with no data: {len(no_data_df)}")
