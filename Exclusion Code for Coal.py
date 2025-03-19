@@ -14,7 +14,7 @@ def load_spglobal_data(file, sheet_name):
     In pandas, header=3 means zero-based index => row #4 in Excel.
     """
     try:
-        df = pd.read_excel(file, sheet_name=sheet_name, header=3)
+        df = pd.read_excel(file, sheet_name=sheet_name, header=5)
         return df
     except Exception as e:
         st.error(f"Error loading SPGlobal sheet '{sheet_name}': {e}")
