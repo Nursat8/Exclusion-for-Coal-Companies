@@ -10,11 +10,22 @@ import openpyxl
 
 def load_spglobal_data(file, sheet_name):
     """
-    Load the SPGlobal file, skipping the first 3 rows so the 4th row is treated as headers.
-    In pandas, header=3 means zero-based index => row #4 in Excel.
+    Load the SPGlobal file, skipping the first 5 rows so row #6 is treated as headers.
+    In pandas, header=5 means 0-based => row #6 in Excel is the header row.
+    Flatten columns if there's a multi-level header.
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=5)
+
+        # If there's a multi-level header, flatten it; otherwise just strip spaces
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [
+                ' '.join(str(x).strip() for x in col if x not in (None, ''))
+                for col in df.columns
+            ]
+        else:
+            df.columns = [str(c).strip() for c in df.columns]
+
         return df
     except Exception as e:
         st.error(f"Error loading SPGlobal sheet '{sheet_name}': {e}")
@@ -22,11 +33,20 @@ def load_spglobal_data(file, sheet_name):
 
 def load_urgewald_data(file, sheet_name):
     """
-    Load the Urgewald GCEL file normally (assuming row #1 is the header).
-    If your GCEL file also needs offset rows, adjust here similarly.
+    Load the Urgewald GCEL file normally (assuming row #1 is header).
+    Adjust if you also need to skip rows for GCEL.
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name)
+        # If needed, flatten columns here as well:
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [
+                ' '.join(str(x).strip() for x in col if x not in (None, ''))
+                for col in df.columns
+            ]
+        else:
+            df.columns = [str(c).strip() for c in df.columns]
+
         return df
     except Exception as e:
         st.error(f"Error loading Urgewald sheet '{sheet_name}': {e}")
@@ -95,14 +115,21 @@ def filter_companies(
     1) Toggles for excluding Mining, Power, Services.
     2) Single expansions_global for expansions.
     3) Check if sector == 'Generation (Thermal Coal)', 'Thermal Coal Mining', 'Metallurgical Coal Mining'
-       AND the user toggled that exclusion on, plus the row's numeric > user threshold.
+       AND the user toggled that exclusion on, plus row's numeric > user threshold.
     """
     exclusion_flags = []
     exclusion_reasons = []
 
+    sector_col = column_mapping["sector_col"]
+    coal_rev_col = column_mapping["coal_rev_col"]
+    coal_power_col = column_mapping["coal_power_col"]
+    capacity_col = column_mapping["capacity_col"]
+    production_col = column_mapping["production_col"]
+    expansion_col = column_mapping["expansion_col"]
+
     for idx, row in df.iterrows():
         reasons = []
-        sector = str(row.get(column_mapping["sector_col"], "")).strip()
+        sector = str(row.get(sector_col, "")).strip()
 
         # Basic sector detection
         is_mining    = ("mining" in sector.lower())
@@ -110,12 +137,12 @@ def filter_companies(
         is_services  = ("services" in sector.lower())
 
         # Numeric fields
-        coal_share        = pd.to_numeric(row.get(column_mapping["coal_rev_col"], 0), errors="coerce") or 0.0
-        coal_power_share  = pd.to_numeric(row.get(column_mapping["coal_power_col"], 0), errors="coerce") or 0.0
-        installed_capacity= pd.to_numeric(row.get(column_mapping["capacity_col"], 0), errors="coerce") or 0.0
+        coal_share         = pd.to_numeric(row.get(coal_rev_col, 0), errors="coerce") or 0.0
+        coal_power_share   = pd.to_numeric(row.get(coal_power_col, 0), errors="coerce") or 0.0
+        installed_capacity = pd.to_numeric(row.get(capacity_col, 0), errors="coerce") or 0.0
 
-        production_val = str(row.get(column_mapping["production_col"], "")).lower()
-        expansion_text = str(row.get(column_mapping["expansion_col"], "")).lower().strip()
+        production_val = str(row.get(production_col, "")).lower()
+        expansion_text = str(row.get(expansion_col, "")).lower().strip()
 
         # ===== MINING =====
         if is_mining and exclude_mining:
@@ -177,7 +204,7 @@ def main():
     # ============ FILE & SHEET =============
     st.sidebar.header("File & Sheet Settings")
 
-    # 1) SPGlobal file (skip first 3 rows, so row #4 is header)
+    # 1) SPGlobal file (read from row #6 => header=5)
     spglobal_sheet = st.sidebar.text_input("SPGlobal Sheet Name", value="SPGlobalSheet")
     spglobal_file  = st.sidebar.file_uploader("Upload SPGlobal Excel file", type=["xlsx"])
 
@@ -219,7 +246,7 @@ def main():
         default=[]
     )
 
-    # ============ SPGlobal Coal Sectors =============
+    # ============ SPGlobal Coal Sectors ============
     st.sidebar.header("SPGlobal Coal Sectors")
     # user can define thresholds AND toggle each exclusion
     gen_thermal_coal_threshold = st.sidebar.number_input("Generation (Thermal Coal) Threshold", value=15.0)
@@ -237,10 +264,12 @@ def main():
             st.warning("Please upload both SPGlobal and Urgewald GCEL files.")
             return
 
-        # Load each file:
-        spglobal_df = load_spglobal_data(spglobal_file, spglobal_sheet)   # uses header=3
-        urgewald_df = load_urgewald_data(urgewald_file, urgewald_sheet)  # normal header
+        # 1) Load SPGlobal => skip first 5 rows
+        spglobal_df = load_spglobal_data(spglobal_file, spglobal_sheet)
+        # 2) Load Urgewald GCEL => normal
+        urgewald_df = load_urgewald_data(urgewald_file, urgewald_sheet)
 
+        # If either is None => error
         if spglobal_df is None or urgewald_df is None:
             return
 
@@ -277,13 +306,12 @@ def main():
             "expansion_col": expansion_col
         }
 
-        # Create extra columns for the final output: 
-        # "Generation (Thermal Coal) Share", "Thermal Coal Mining Share", "Metallurgical Coal Mining Share"
+        # Create extra columns for final output
         combined_df["Generation (Thermal Coal) Share"] = np.nan
         combined_df["Thermal Coal Mining Share"]       = np.nan
         combined_df["Metallurgical Coal Mining Share"] = np.nan
 
-        # Fill them conditionally (matching exact sector text)
+        # Fill them conditionally if exact sector matches
         for i, row in combined_df.iterrows():
             s = str(row.get(sector_col, "")).strip()
             val = pd.to_numeric(row.get(coal_rev_col, 0), errors="coerce") or 0.0
@@ -360,7 +388,6 @@ def main():
 
         no_data_df = filtered_df[filtered_df[sector_col].isna()][retained_cols]
 
-        # Write output to Excel in-memory
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             excluded_df.to_excel(writer, sheet_name="Excluded Companies", index=False)
