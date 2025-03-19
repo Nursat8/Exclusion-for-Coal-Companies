@@ -15,7 +15,7 @@ def load_spglobal_data(file, sheet_name):
     Flatten columns if there's a multi-level header.
     """
     try:
-        df = pd.read_excel(file, sheet_name=sheet_name, header=4)
+        df = pd.read_excel(file, sheet_name=sheet_name, header=6)
 
         # If there's a multi-level header, flatten it; otherwise just strip spaces
         if isinstance(df.columns, pd.MultiIndex):
