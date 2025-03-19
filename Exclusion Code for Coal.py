@@ -33,43 +33,37 @@ def find_column(df, must_keywords, exclude_keywords=None):
 def filter_companies(
     df,
     # Mining thresholds
-    # -- REMOVED "Mining: Max coal revenue (%)" => no more `mining_rev_threshold`
-    mining_prod_mt_threshold,               # keep only for demonstration
-    # -- REMOVED "Mining: Max production threshold (GW)"
+    mining_prod_mt_threshold,  # MODIFIED: removed mining revenue & GW threshold
     # Power thresholds
-    power_rev_threshold,                    # keep to show we left old code alone
+    power_rev_threshold,
     power_prod_threshold_percent,
-    # -- REMOVED "Power: Max production threshold (MT)"
-    # -- REMOVED "Power: Max production threshold (GW)"
-    capacity_threshold_mw,
+    capacity_threshold_mw,    # MODIFIED: removed power prod (MT, GW)
     # Services thresholds
-    services_rev_threshold,
-    # -- REMOVED "Services: Max production threshold (MT)"
-    # -- REMOVED "Services: Max production threshold (GW)"
+    services_rev_threshold,   # MODIFIED: removed services prod (MT, GW)
     # Exclusion toggles
     exclude_mining,
     exclude_power,
     exclude_services,
-    # -- REMOVED booleans: exclude_mining_rev, exclude_mining_prod_gw, exclude_power_prod_mt, exclude_power_prod_gw,
-    #                      exclude_services_prod_mt, exclude_services_prod_gw
     exclude_mining_prod_mt,
     exclude_power_rev,
     exclude_power_prod_percent,
     exclude_capacity_mw,
     exclude_services_rev,
-    # -- REMOVED expansions_mining, expansions_power, expansions_services
-    # ADDED single expansions param:
-    expansions_global,  # MODIFIED
+    # Global expansions
+    expansions_global,  # MODIFIED: single expansions param
     column_mapping,
-    # ADDED three new thresholds for SPGlobal sectors:
-    gen_thermal_coal_threshold,        # MODIFIED
-    thermal_coal_mining_threshold,     # MODIFIED
-    metallurgical_coal_mining_threshold  # MODIFIED
+    # SPGlobal coal sector thresholds
+    gen_thermal_coal_threshold,         # MODIFIED
+    thermal_coal_mining_threshold,      # MODIFIED
+    metallurgical_coal_mining_threshold # MODIFIED
 ):
     """
     Apply exclusion criteria to filter companies based on thresholds.
-    REMOVED expansions logic from each sector, now there's one expansions_global.
-    ADDED logic for dynamic SPGlobal sectors: Generation (Thermal Coal), Thermal Coal Mining, Metallurgical Coal Mining.
+
+    1) No more Mining: Max coal revenue / Mining: Max production (GW).
+    2) No more expansions inside each sector. There's a single expansions_global now.
+    3) Check if sector == 'Generation (Thermal Coal)', 'Thermal Coal Mining', or 'Metallurgical Coal Mining'
+       and apply user-defined thresholds.
     """
     exclusion_flags = []
     exclusion_reasons = []
@@ -78,26 +72,21 @@ def filter_companies(
         reasons = []
         sector = str(row.get(column_mapping["sector_col"], "")).strip()
 
-        # Identify membership from your existing code:
         is_mining = ("mining" in sector.lower())
         is_power  = ("power"  in sector.lower())
         is_services = ("services" in sector.lower())
 
-        # Example: user wants to define threshold for each row's "coal share" (or some numeric measure)
-        # We'll call it 'coal_share_col' just as an example:
+        # Example numeric fields (as in original script)
         coal_share = pd.to_numeric(row.get(column_mapping["coal_rev_col"], 0), errors="coerce") or 0.0
         coal_power_share = pd.to_numeric(row.get(column_mapping["coal_power_col"], 0), errors="coerce") or 0.0
         installed_capacity = pd.to_numeric(row.get(column_mapping["capacity_col"], 0), errors="coerce") or 0.0
 
-        # Production text
         production_val = str(row.get(column_mapping["production_col"], "")).lower()
-
-        # expansions text
         expansion_text = str(row.get(column_mapping["expansion_col"], "")).lower().strip()
 
         # =========== MINING ===========
         if is_mining and exclude_mining:
-            # We removed the mining_rev_threshold logic => no revenue check here
+            # Only check "Mining: Max production threshold (MT)" if user selected
             if exclude_mining_prod_mt and ">10mt" in production_val:
                 reasons.append(f"Mining production suggests >10MT vs threshold {mining_prod_mt_threshold}MT")
 
@@ -117,31 +106,24 @@ def filter_companies(
             if exclude_services_rev and (coal_share * 100) > services_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_share*100:.2f}% > {services_rev_threshold}% (Services)")
 
-        # =========== GLOBAL EXPANSIONS (NEW) ===========
-        # removed expansions_{sector} checks, replaced with one check:
-        if expansions_global:  # user picked expansions to exclude
+        # =========== GLOBAL EXPANSION (NEW) ===========
+        if expansions_global:  # user picked expansions
             for choice in expansions_global:
                 if choice.lower() in expansion_text:
                     reasons.append(f"Expansion plan matched '{choice}'")
-                    break
+                    break  # exclude once we find any match
 
-        # =========== DYNAMIC SPGlobal Sectors (NEW) ===========
-        # If the 'sector' is exactly "Generation (Thermal Coal)"
-        # or "Thermal Coal Mining" or "Metallurgical Coal Mining",
-        # compare to user threshold. We'll re-use `coal_share` for demonstration.
+        # =========== SPGlobal SECTORS (NEW) ===========
         if sector == "Generation (Thermal Coal)":
             if coal_share > gen_thermal_coal_threshold:
-                reasons.append(f"{sector}: {coal_share:.2f} > {gen_thermal_coal_threshold} threshold")
-
+                reasons.append(f"{sector} {coal_share:.2f} > {gen_thermal_coal_threshold}")
         elif sector == "Thermal Coal Mining":
             if coal_share > thermal_coal_mining_threshold:
-                reasons.append(f"{sector}: {coal_share:.2f} > {thermal_coal_mining_threshold} threshold")
-
+                reasons.append(f"{sector} {coal_share:.2f} > {thermal_coal_mining_threshold}")
         elif sector == "Metallurgical Coal Mining":
             if coal_share > metallurgical_coal_mining_threshold:
-                reasons.append(f"{sector}: {coal_share:.2f} > {metallurgical_coal_mining_threshold} threshold")
+                reasons.append(f"{sector} {coal_share:.2f} > {metallurgical_coal_mining_threshold}")
 
-        # If reasons => excluded
         exclusion_flags.append(bool(reasons))
         exclusion_reasons.append("; ".join(reasons) if reasons else "")
 
@@ -161,32 +143,36 @@ def main():
     # ============ MINING THRESHOLDS ============
     st.sidebar.header("Mining Thresholds")
     exclude_mining = st.sidebar.checkbox("Exclude Mining", value=True)
-    # -- REMOVED "Mining: Max coal revenue (%)"
-    # -- REMOVED "Exclude if mining rev threshold exceeded"
-    # Keep only "Mining: Max production threshold (MT)" for demonstration:
+
+    # -- REMOVED "Mining: Max coal revenue (%)" and its checkbox
+    # -- REMOVED "Mining: Max production threshold (GW)" and its checkbox
+
+    # Kept "Mining: Max production threshold (MT)"
     mining_prod_mt_threshold = st.sidebar.number_input("Mining: Max production threshold (MT)", value=10.0)
     exclude_mining_prod_mt = st.sidebar.checkbox("Exclude if > MT for Mining", value=True)
-    # -- REMOVED "Mining: Max production threshold (GW)" & its checkbox
 
     # ============ POWER THRESHOLDS ============
     st.sidebar.header("Power Thresholds")
     exclude_power = st.sidebar.checkbox("Exclude Power", value=True)
+
     power_rev_threshold = st.sidebar.number_input("Power: Max coal revenue (%)", value=20.0)
     exclude_power_rev = st.sidebar.checkbox("Exclude if power rev threshold exceeded", value=True)
+
     power_prod_threshold_percent = st.sidebar.number_input("Power: Max coal power production (%)", value=20.0)
     exclude_power_prod_percent = st.sidebar.checkbox("Exclude if power production % exceeded", value=True)
-    # -- REMOVED "Power: Max production threshold (MT)" & its checkbox
-    # -- REMOVED "Power: Max production threshold (GW)" & its checkbox
+
     capacity_threshold_mw = st.sidebar.number_input("Power: Max installed coal power capacity (MW)", value=10000.0)
     exclude_capacity_mw = st.sidebar.checkbox("Exclude if capacity threshold exceeded", value=True)
+
+    # -- REMOVED "Power: Max production threshold (MT)" & "Power: Max production threshold (GW)" plus their checkboxes
 
     # ============ SERVICES THRESHOLDS ============
     st.sidebar.header("Services Thresholds")
     exclude_services = st.sidebar.checkbox("Exclude Services", value=False)
     services_rev_threshold = st.sidebar.number_input("Services: Max coal revenue (%)", value=10.0)
     exclude_services_rev = st.sidebar.checkbox("Exclude if services rev threshold exceeded", value=False)
-    # -- REMOVED "Services: Max production threshold (MT)" & checkbox
-    # -- REMOVED "Services: Max production threshold (GW)" & checkbox
+
+    # -- REMOVED "Services: Max production threshold (MT)" & "Services: Max production threshold (GW)" plus checkboxes
 
     # ============ GLOBAL EXPANSION EXCLUSION (NEW) ============
     st.sidebar.header("Global Expansion Exclusion")  # MODIFIED
@@ -197,8 +183,8 @@ def main():
         default=[]
     )
 
-    # ============ NEW: SPGlobal SECTORS & THRESHOLDS ============
-    st.sidebar.header("SPGlobal Coal Sectors (New)")  # MODIFIED
+    # ============ SPGlobal Coal Sectors (NEW) ============
+    st.sidebar.header("SPGlobal Coal Sectors")  # MODIFIED
     gen_thermal_coal_threshold = st.sidebar.number_input("Generation (Thermal Coal) Threshold", value=15.0)
     thermal_coal_mining_threshold = st.sidebar.number_input("Thermal Coal Mining Threshold", value=20.0)
     metallurgical_coal_mining_threshold = st.sidebar.number_input("Metallurgical Coal Mining Threshold", value=25.0)
@@ -232,13 +218,13 @@ def main():
 
         filtered_df = filter_companies(
             df,
-            # Mining thresholds
+            # Mining threshold
             mining_prod_mt_threshold,
             # Power thresholds
             power_rev_threshold,
             power_prod_threshold_percent,
             capacity_threshold_mw,
-            # Services thresholds
+            # Services threshold
             services_rev_threshold,
             # Exclusion toggles
             exclude_mining,
@@ -249,13 +235,13 @@ def main():
             exclude_power_prod_percent,
             exclude_capacity_mw,
             exclude_services_rev,
-            # GLOBAL expansions (NEW)
-            expansions_global,  # MODIFIED
+            # GLOBAL expansions
+            expansions_global,
             column_mapping,
-            # The three new SPGlobal thresholds:
-            gen_thermal_coal_threshold,         # MODIFIED
-            thermal_coal_mining_threshold,      # MODIFIED
-            metallurgical_coal_mining_threshold # MODIFIED
+            # SPGlobal thresholds
+            gen_thermal_coal_threshold,
+            thermal_coal_mining_threshold,
+            metallurgical_coal_mining_threshold
         )
 
         # =========== OUTPUT SHEETS ===========
@@ -308,3 +294,7 @@ def main():
             file_name="filtered_results.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+
+if __name__ == "__main__":
+    main()
