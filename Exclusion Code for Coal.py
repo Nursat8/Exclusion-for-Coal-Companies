@@ -138,7 +138,7 @@ def main():
     st.sidebar.header("File & Sheet Settings")
 
     # NEW: two file uploads for SPGlobal & Urgewald GCEL
-    spglobal_sheet = st.sidebar.text_input("SPGlobal Sheet Name", value="SPGlobalSheet")  # NEW
+    spglobal_sheet = st.sidebar.text_input("SPGlobal Sheet Name", value="Sheet1")  # NEW
     spglobal_file  = st.sidebar.file_uploader("Upload SPGlobal Excel file", type=["xlsx"])  # NEW
 
     urgewald_sheet = st.sidebar.text_input("Urgewald GCEL Sheet Name", value="GCEL 2024")  # NEW
