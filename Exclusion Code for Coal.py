@@ -5,7 +5,7 @@ import numpy as np
 import openpyxl
 
 ##############################
-# UTILITY: MAKE COLUMNS UNIQUE
+# 1) MAKE COLUMNS UNIQUE
 ##############################
 def make_columns_unique(df):
     """
@@ -26,12 +26,12 @@ def make_columns_unique(df):
     return df
 
 ##############################
-# DATA-LOADING FUNCTIONS
+# 2) DATA-LOADING FUNCTIONS
 ##############################
 def load_spglobal_data(file, sheet_name):
     """
     Load the SPGlobal file, skipping the first 5 rows so row #6 is treated as headers.
-    Flatten columns if there's a multi-level header and make columns unique.
+    Flatten columns if there's a multi-level header, then ensure columns are unique.
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=5)
@@ -52,7 +52,7 @@ def load_spglobal_data(file, sheet_name):
 def load_urgewald_data(file, sheet_name):
     """
     Load the Urgewald GCEL file normally (assuming row #1 is header).
-    Flatten columns if multi-level and make columns unique.
+    Flatten columns if multi-level, then ensure columns are unique.
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name)
@@ -71,29 +71,26 @@ def load_urgewald_data(file, sheet_name):
         return None
 
 ##############################
-# HELPER: find_column
+# 3) HELPER: find_column
 ##############################
 def find_column(df, must_keywords, exclude_keywords=None):
     """
-    Finds a column in df that contains ALL 'must_keywords' (case-insensitive)
-    and excludes any column containing any 'exclude_keywords'.
-    Returns the first matching column name or None if no match.
+    Searches for a column in df whose header contains ALL must_keywords (case-insensitive)
+    and does not contain any exclude_keywords. Returns the first matching column name, or None.
     """
     if exclude_keywords is None:
         exclude_keywords = []
 
     for col in df.columns:
-        col_lower = col.lower().strip()
-        # must_keywords must ALL appear
+        col_lower = col.lower()
         if all(mk.lower() in col_lower for mk in must_keywords):
-            # exclude_keywords must NOT appear
             if any(ex_kw.lower() in col_lower for ex_kw in exclude_keywords):
                 continue
             return col
     return None
 
 ##############################
-# CORE: filter_companies
+# 4) CORE: filter_companies
 ##############################
 def filter_companies(
     df,
@@ -117,7 +114,10 @@ def filter_companies(
     # Global expansions
     expansions_global,
     column_mapping,
-    # SPGlobal coal sector thresholds + toggles
+    # SPGlobal coal sector columns + thresholds + toggles
+    gen_coal_col,
+    thermal_mining_col,
+    metallurgical_mining_col,
     gen_thermal_coal_threshold,
     thermal_coal_mining_threshold,
     metallurgical_coal_mining_threshold,
@@ -126,12 +126,12 @@ def filter_companies(
     exclude_metallurgical_coal_mining
 ):
     """
-    Apply exclusion criteria to filter companies based on thresholds and toggles:
+    Apply exclusion criteria to filter companies based on:
 
-    1) Toggles for excluding Mining, Power, Services.
-    2) expansions_global for expansions text search.
-    3) Partial-match logic for 'Generation (Thermal Coal)', 'Thermal Coal Mining', 
-       'Metallurgical Coal Mining' based on sector text.
+    1) Toggles for excluding Mining, Power, Services (based on partial text in sector).
+    2) expansions_global for expansions text.
+    3) Direct numeric columns for Generation (Thermal Coal), Thermal Coal Mining, 
+       Metallurgical Coal Mining. If they exist and exceed the user threshold, exclude.
     """
     exclusion_flags = []
     exclusion_reasons = []
@@ -150,7 +150,7 @@ def filter_companies(
 
         # Basic sector detection
         is_mining    = ("mining" in s_lc)
-        # We'll also treat "generation" as power:
+        # We'll treat "generation" as power as well:
         is_power     = ("power" in s_lc) or ("generation" in s_lc)
         is_services  = ("services" in s_lc)
 
@@ -159,58 +159,56 @@ def filter_companies(
         coal_power_share   = pd.to_numeric(row.get(power_col, 0), errors="coerce") or 0.0
         installed_capacity = pd.to_numeric(row.get(cap_col, 0), errors="coerce") or 0.0
 
-        # production col is often text like ">10mt", so let's just check text
         prod_val = str(row.get(prod_col, "")).lower()
-        # expansions
         exp_text = str(row.get(exp_col, "")).lower().strip()
 
-        # ===== MINING =====
+        # ===== MINING (from sector) =====
         if is_mining and exclude_mining:
             if exclude_mining_prod_mt and ">10mt" in prod_val:
                 reasons.append(f"Mining production >10MT vs {mining_prod_mt_threshold}MT")
 
-        # ===== POWER =====
+        # ===== POWER (from sector) =====
         if is_power and exclude_power:
+            # If we are excluding for coal share % of revenue
             if exclude_power_rev and (coal_share * 100) > power_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_share*100:.2f}% > {power_rev_threshold}% (Power)")
 
+            # If we are excluding for coal share % of power production
             if exclude_power_prod_percent and (coal_power_share * 100) > power_prod_threshold_percent:
                 reasons.append(f"Coal share of power production {coal_power_share*100:.2f}% > {power_prod_threshold_percent}%")
 
+            # If we are excluding for installed capacity
             if exclude_capacity_mw and (installed_capacity > capacity_threshold_mw):
                 reasons.append(f"Installed coal power capacity {installed_capacity:.2f}MW > {capacity_threshold_mw}MW")
 
-        # ===== SERVICES =====
+        # ===== SERVICES (from sector) =====
         if is_services and exclude_services:
             if exclude_services_rev and (coal_share * 100) > services_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_share*100:.2f}% > {services_rev_threshold}% (Services)")
 
-        # ===== GLOBAL EXPANSIONS =====
+        # ===== GLOBAL EXPANSIONS (text) =====
         if expansions_global:
             for choice in expansions_global:
                 if choice.lower() in exp_text:
                     reasons.append(f"Expansion plan matched '{choice}'")
                     break
 
-        # ===== SPGlobal COAL SECTORS (PARTIAL MATCH) =====
-        # Generation (Thermal Coal)
-        if exclude_generation_thermal_coal:
-            # searching for "thermal" + ("power" or "generation")
-            if ("thermal" in s_lc) and (("power" in s_lc) or ("generation" in s_lc)):
-                if coal_share > gen_thermal_coal_threshold:
-                    reasons.append(f"Generation (Thermal Coal) {coal_share:.2f} > {gen_thermal_coal_threshold}")
+        # ===== DIRECT NUMERIC COLUMNS: Generation / Thermal Mining / Metallurgical Mining =====
+        # generation_thermal_val = row[gen_coal_col], etc. if those columns exist
+        if exclude_generation_thermal_coal and gen_coal_col in df.columns:
+            val_gen = pd.to_numeric(row.get(gen_coal_col, 0), errors="coerce") or 0.0
+            if val_gen > gen_thermal_coal_threshold:
+                reasons.append(f"Generation (Thermal Coal) {val_gen:.2f} > {gen_thermal_coal_threshold}")
 
-        # Thermal Coal Mining
-        if exclude_thermal_coal_mining:
-            if "thermal" in s_lc and "coal" in s_lc and "mining" in s_lc:
-                if coal_share > thermal_coal_mining_threshold:
-                    reasons.append(f"Thermal Coal Mining {coal_share:.2f} > {thermal_coal_mining_threshold}")
+        if exclude_thermal_coal_mining and thermal_mining_col in df.columns:
+            val_thermal = pd.to_numeric(row.get(thermal_mining_col, 0), errors="coerce") or 0.0
+            if val_thermal > thermal_coal_mining_threshold:
+                reasons.append(f"Thermal Coal Mining {val_thermal:.2f} > {thermal_coal_mining_threshold}")
 
-        # Metallurgical Coal Mining
-        if exclude_metallurgical_coal_mining:
-            if "metallurgical" in s_lc and "coal" in s_lc and "mining" in s_lc:
-                if coal_share > metallurgical_coal_mining_threshold:
-                    reasons.append(f"Metallurgical Coal Mining {coal_share:.2f} > {metallurgical_coal_mining_threshold}")
+        if exclude_metallurgical_coal_mining and metallurgical_mining_col in df.columns:
+            val_met = pd.to_numeric(row.get(metallurgical_mining_col, 0), errors="coerce") or 0.0
+            if val_met > metallurgical_coal_mining_threshold:
+                reasons.append(f"Metallurgical Coal Mining {val_met:.2f} > {metallurgical_coal_mining_threshold}")
 
         # If any reasons found => excluded
         exclusion_flags.append(bool(reasons))
@@ -221,7 +219,7 @@ def filter_companies(
     return df
 
 ##############################
-# MAIN STREAMLIT APP
+# 5) MAIN STREAMLIT APP
 ##############################
 def main():
     st.set_page_config(page_title="Coal Exclusion Filter", layout="wide")
@@ -274,13 +272,13 @@ def main():
 
     # ============ SPGlobal Coal Sectors (Partial Matches) ============
     st.sidebar.header("SPGlobal Coal Sectors")
-    gen_thermal_coal_threshold = st.sidebar.number_input("Generation (Thermal Coal) Threshold", value=15.0)
+    gen_thermal_coal_threshold = st.sidebar.number_input("Generation (Thermal Coal) Threshold", value=0.05)
     exclude_generation_thermal_coal = st.sidebar.checkbox("Exclude Generation (Thermal Coal)?", value=True)
 
-    thermal_coal_mining_threshold = st.sidebar.number_input("Thermal Coal Mining Threshold", value=20.0)
+    thermal_coal_mining_threshold = st.sidebar.number_input("Thermal Coal Mining Threshold", value=0.05)
     exclude_thermal_coal_mining = st.sidebar.checkbox("Exclude Thermal Coal Mining?", value=True)
 
-    metallurgical_coal_mining_threshold = st.sidebar.number_input("Metallurgical Coal Mining Threshold", value=25.0)
+    metallurgical_coal_mining_threshold = st.sidebar.number_input("Metallurgical Coal Mining Threshold", value=0.05)
     exclude_metallurgical_coal_mining = st.sidebar.checkbox("Exclude Metallurgical Coal Mining?", value=True)
 
     # ============ RUN FILTER =============
@@ -296,10 +294,10 @@ def main():
         if spglobal_df is None or urgewald_df is None:
             return
 
-        # 2) Simply concatenate - NO dedup, so we keep ALL rows
+        # 2) Concatenate everything (NO dedup => all rows are kept)
         combined_df = pd.concat([spglobal_df, urgewald_df], ignore_index=True)
 
-        # 3) Identify relevant columns
+        # 3) Identify relevant columns for partial text logic (Mining, Power, etc.)
         def find_co(*kw):
             return find_column(combined_df, list(kw), exclude_keywords=["parent"])
 
@@ -314,31 +312,27 @@ def main():
         production_col = find_co("10mt","5gw") or ">10MT / >5GW"
         expansion_col  = find_co("expansion") or "Expansion"
 
-        # 4) Create columns for final output
-        combined_df["Generation (Thermal Coal) Share"] = np.nan
-        combined_df["Thermal Coal Mining Share"]       = np.nan
-        combined_df["Metallurgical Coal Mining Share"] = np.nan
+        # 4) Identify the three "SPGlobal Coal Sectors" columns 
+        #    (we assume the actual columns might say "Generation (Thermal Coal)", etc.)
+        #    We'll do partial matches, ignoring case:
+        gen_coal_col = find_column(combined_df, ["generation","thermal","coal"])
+        thermal_mining_col = find_column(combined_df, ["thermal","coal","mining"])
+        metallurgical_mining_col = find_column(combined_df, ["metallurgical","coal","mining"])
 
-        # 5) Fill them if partial match of 'Sector'
-        for i, row in combined_df.iterrows():
-            sec_val = str(row.get(sector_col, "")).strip().lower()
-            # Use the 'coal_rev_col' as the numeric value to store in these share columns
-            # (If you actually want to read from a different numeric column, adjust here)
-            val = pd.to_numeric(row.get(coal_rev_col, 0), errors="coerce") or 0.0
+        # If any are not found, create a column with all zeros (so we have something)
+        if not gen_coal_col:
+            gen_coal_col = "GenThermalCoalAuto"
+            combined_df[gen_coal_col] = 0.0
 
-            # Generation (Thermal Coal)
-            if ("thermal" in sec_val) and (("generation" in sec_val) or ("power" in sec_val)):
-                combined_df.at[i, "Generation (Thermal Coal) Share"] = val
+        if not thermal_mining_col:
+            thermal_mining_col = "ThermalCoalMiningAuto"
+            combined_df[thermal_mining_col] = 0.0
 
-            # Thermal Coal Mining
-            if "thermal" in sec_val and "coal" in sec_val and "mining" in sec_val:
-                combined_df.at[i, "Thermal Coal Mining Share"] = val
+        if not metallurgical_mining_col:
+            metallurgical_mining_col = "MetallurgicalCoalMiningAuto"
+            combined_df[metallurgical_mining_col] = 0.0
 
-            # Metallurgical Coal Mining
-            if "metallurgical" in sec_val and "coal" in sec_val and "mining" in sec_val:
-                combined_df.at[i, "Metallurgical Coal Mining Share"] = val
-
-        # 6) Filter according to your thresholds & toggles
+        # 5) Filter according to your thresholds & toggles
         column_mapping = {
             "sector_col":    sector_col,
             "company_col":   company_col,
@@ -353,36 +347,40 @@ def main():
         }
 
         filtered_df = filter_companies(
-            combined_df,
+            df=combined_df,
             # Mining threshold
-            mining_prod_mt_threshold,
+            mining_prod_mt_threshold=mining_prod_mt_threshold,
             # Power thresholds
-            power_rev_threshold,
-            power_prod_threshold_percent,
-            capacity_threshold_mw,
+            power_rev_threshold=power_rev_threshold,
+            power_prod_threshold_percent=power_prod_threshold_percent,
+            capacity_threshold_mw=capacity_threshold_mw,
             # Services threshold
-            services_rev_threshold,
+            services_rev_threshold=services_rev_threshold,
             # Exclusion toggles
-            exclude_mining,
-            exclude_power,
-            exclude_services,
-            exclude_mining_prod_mt,
-            exclude_power_rev,
-            exclude_power_prod_percent,
-            exclude_capacity_mw,
-            exclude_services_rev,
-            expansions_global,
-            column_mapping,
-            # SPGlobal thresholds + toggles
-            gen_thermal_coal_threshold,
-            thermal_coal_mining_threshold,
-            metallurgical_coal_mining_threshold,
-            exclude_generation_thermal_coal,
-            exclude_thermal_coal_mining,
-            exclude_metallurgical_coal_mining
+            exclude_mining=exclude_mining,
+            exclude_power=exclude_power,
+            exclude_services=exclude_services,
+            exclude_mining_prod_mt=exclude_mining_prod_mt,
+            exclude_power_rev=exclude_power_rev,
+            exclude_power_prod_percent=exclude_power_prod_percent,
+            exclude_capacity_mw=exclude_capacity_mw,
+            exclude_services_rev=exclude_services_rev,
+            expansions_global=expansions_global,
+            column_mapping=column_mapping,
+            # SPGlobal columns and thresholds
+            gen_coal_col=gen_coal_col,
+            thermal_mining_col=thermal_mining_col,
+            metallurgical_mining_col=metallurgical_mining_col,
+            gen_thermal_coal_threshold=gen_thermal_coal_threshold,
+            thermal_coal_mining_threshold=thermal_coal_mining_threshold,
+            metallurgical_coal_mining_threshold=metallurgical_coal_mining_threshold,
+            exclude_generation_thermal_coal=exclude_generation_thermal_coal,
+            exclude_thermal_coal_mining=exclude_thermal_coal_mining,
+            exclude_metallurgical_coal_mining=exclude_metallurgical_coal_mining
         )
 
-        # 7) Build final sheets
+        # 6) Build final sheets
+        #    We'll show the three numeric columns for Generation/Thermal/Metallurgical in output
         excluded_cols = [
             company_col,
             production_col,
@@ -392,11 +390,12 @@ def main():
             ticker_col,
             isin_col,
             lei_col,
-            "Generation (Thermal Coal) Share",
-            "Thermal Coal Mining Share",
-            "Metallurgical Coal Mining Share",
+            gen_coal_col,
+            thermal_mining_col,
+            metallurgical_mining_col,
             "Exclusion Reasons"
         ]
+
         retained_cols = [
             company_col,
             production_col,
@@ -406,37 +405,36 @@ def main():
             ticker_col,
             isin_col,
             lei_col,
-            "Generation (Thermal Coal) Share",
-            "Thermal Coal Mining Share",
-            "Metallurgical Coal Mining Share"
+            gen_coal_col,
+            thermal_mining_col,
+            metallurgical_mining_col
         ]
 
         excluded_df = filtered_df[filtered_df["Excluded"] == True][excluded_cols]
         retained_df = filtered_df[filtered_df["Excluded"] == False][retained_cols]
 
-        # "No Data" means missing sector info
+        # "No Data" means missing 'sector_col'
         no_data_df = filtered_df[filtered_df[sector_col].isna()][retained_cols]
 
-        # 8) Write final results to an in-memory Excel file
+        # 7) Write final results to an in-memory Excel file
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             excluded_df.to_excel(writer, sheet_name="Excluded Companies", index=False)
             retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
             no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
 
-        # 9) Show stats & data
+        # 8) Show stats & data
         st.subheader("Statistics")
-        st.write(f"Total companies (all rows combined): {len(combined_df)}")
-        st.write(f"Total companies after filter: {len(filtered_df)}")
+        st.write(f"Total combined rows: {len(combined_df)}")
         st.write(f"Excluded companies: {len(excluded_df)}")
         st.write(f"Retained companies: {len(retained_df)}")
-        st.write(f"Companies with no data in '{sector_col}': {len(no_data_df)}")
+        st.write(f"No-data (no {sector_col}): {len(no_data_df)}")
 
-        # Show a preview of final
-        st.subheader("Excluded Companies")
+        # Display a small preview
+        st.subheader("Excluded Companies (Preview)")
         st.dataframe(excluded_df.head(50))
 
-        # 10) Download button
+        # 9) Download button
         st.download_button(
             label="Download Results",
             data=output.getvalue(),
