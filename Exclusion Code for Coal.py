@@ -34,7 +34,13 @@ def load_spglobal_data(file, sheet_name):
     Flatten columns if there's a multi-level header, then ensure columns are unique.
     """
     try:
-        df = pd.read_excel(file, sheet_name=sheet_name, header=5)
+        df = pd.read_excel(file, sheet_name=sheet_name, header=[4,5])
+        df.columns = [
+            " ".join(str(x).strip() for x in col if x not in (None, ""))
+            for col in df.columns
+        ]
+# Now df has combined headers from row #5 and row #6
+
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [
                 " ".join(str(x).strip() for x in col if x is not None)
