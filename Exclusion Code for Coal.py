@@ -5,13 +5,13 @@ import numpy as np
 import openpyxl
 
 ##############################
-# 1) MAKE COLUMNS UNIQUE
+# UTILITY: MAKE COLUMNS UNIQUE
 ##############################
 def make_columns_unique(df):
     """
-    If a DataFrame has duplicate column names, Pandas can throw
-    'InvalidIndexError' on concat. This function renames duplicates
-    by appending '_1', '_2', etc.
+    Ensures DataFrame df has uniquely named columns by appending a suffix 
+    (e.g., '_1', '_2') if duplicates exist. This prevents 'InvalidIndexError'
+    when concatenating.
     """
     seen = {}
     new_cols = []
@@ -26,7 +26,7 @@ def make_columns_unique(df):
     return df
 
 ##############################
-# 2) DATA-LOADING FUNCTIONS
+# DATA-LOADING FUNCTIONS
 ##############################
 def load_spglobal_data(file, sheet_name):
     """
@@ -71,11 +71,11 @@ def load_urgewald_data(file, sheet_name):
         return None
 
 ##############################
-# 3) HELPER: find_column
+# HELPER: find_column
 ##############################
 def find_column(df, must_keywords, exclude_keywords=None):
     """
-    Finds a column in df that contains all 'must_keywords' (case-insensitive)
+    Finds a column in df that contains ALL 'must_keywords' (case-insensitive)
     and excludes any column containing any 'exclude_keywords'.
     Returns the first matching column name or None if no match.
     """
@@ -84,45 +84,16 @@ def find_column(df, must_keywords, exclude_keywords=None):
 
     for col in df.columns:
         col_lower = col.lower().strip()
+        # must_keywords must ALL appear
         if all(mk.lower() in col_lower for mk in must_keywords):
+            # exclude_keywords must NOT appear
             if any(ex_kw.lower() in col_lower for ex_kw in exclude_keywords):
                 continue
             return col
     return None
 
 ##############################
-# 4) DUPLICATE REMOVAL
-##############################
-def remove_exact_duplicates(df, col_company, col_isin, col_lei):
-    """
-    Removes rows as duplicates only if (company, isin, lei) are all
-    identical and non-empty. Otherwise, keeps them.
-    """
-    # If these columns don't exist, create them so we can do consistent logic
-    for c in [col_company, col_isin, col_lei]:
-        if c not in df.columns:
-            df[c] = np.nan
-
-    # Build a tuple key (company, isin, lei) in lowercase
-    def make_key(row):
-        comp = str(row[col_company]).strip().lower() if pd.notnull(row[col_company]) else ""
-        isin = str(row[col_isin]).strip().lower()   if pd.notnull(row[col_isin]) else ""
-        lei  = str(row[col_lei]).strip().lower()    if pd.notnull(row[col_lei]) else ""
-        # We consider the row "deduplicable" only if all 3 are non-empty
-        if comp and isin and lei:
-            return (comp, isin, lei)
-        else:
-            return None
-
-    df["_dup_key_"] = df.apply(make_key, axis=1)
-    # Drop duplicates on that key, keep the first occurrence
-    df.drop_duplicates(subset=["_dup_key_"], keep="first", inplace=True)
-    df.drop(columns=["_dup_key_"], inplace=True)
-
-    return df
-
-##############################
-# 5) CORE: filter_companies
+# CORE: filter_companies
 ##############################
 def filter_companies(
     df,
@@ -155,14 +126,12 @@ def filter_companies(
     exclude_metallurgical_coal_mining
 ):
     """
-    Apply exclusion criteria to filter companies based on thresholds.
+    Apply exclusion criteria to filter companies based on thresholds and toggles:
 
     1) Toggles for excluding Mining, Power, Services.
-    2) Single expansions_global for expansions.
-    3) PARTIAL MATCH for SPGlobal sectors using keywords:
-       - "generation" + "thermal"
-       - "thermal" + "coal" + "mining"
-       - "metallurgical" + "coal" + "mining"
+    2) expansions_global for expansions text search.
+    3) Partial-match logic for 'Generation (Thermal Coal)', 'Thermal Coal Mining', 
+       'Metallurgical Coal Mining' based on sector text.
     """
     exclusion_flags = []
     exclusion_reasons = []
@@ -181,7 +150,7 @@ def filter_companies(
 
         # Basic sector detection
         is_mining    = ("mining" in s_lc)
-        # We also treat "generation" as power for better coverage
+        # We'll also treat "generation" as power:
         is_power     = ("power" in s_lc) or ("generation" in s_lc)
         is_services  = ("services" in s_lc)
 
@@ -190,7 +159,9 @@ def filter_companies(
         coal_power_share   = pd.to_numeric(row.get(power_col, 0), errors="coerce") or 0.0
         installed_capacity = pd.to_numeric(row.get(cap_col, 0), errors="coerce") or 0.0
 
+        # production col is often text like ">10mt", so let's just check text
         prod_val = str(row.get(prod_col, "")).lower()
+        # expansions
         exp_text = str(row.get(exp_col, "")).lower().strip()
 
         # ===== MINING =====
@@ -224,8 +195,8 @@ def filter_companies(
         # ===== SPGlobal COAL SECTORS (PARTIAL MATCH) =====
         # Generation (Thermal Coal)
         if exclude_generation_thermal_coal:
-            # searching for "thermal" + ("generation" or "power")
-            if ("thermal" in s_lc) and (("generation" in s_lc) or ("power" in s_lc)):
+            # searching for "thermal" + ("power" or "generation")
+            if ("thermal" in s_lc) and (("power" in s_lc) or ("generation" in s_lc)):
                 if coal_share > gen_thermal_coal_threshold:
                     reasons.append(f"Generation (Thermal Coal) {coal_share:.2f} > {gen_thermal_coal_threshold}")
 
@@ -250,7 +221,7 @@ def filter_companies(
     return df
 
 ##############################
-# 6) MAIN STREAMLIT APP
+# MAIN STREAMLIT APP
 ##############################
 def main():
     st.set_page_config(page_title="Coal Exclusion Filter", layout="wide")
@@ -325,10 +296,10 @@ def main():
         if spglobal_df is None or urgewald_df is None:
             return
 
-        # 2) Combine them
+        # 2) Simply concatenate - NO dedup, so we keep ALL rows
         combined_df = pd.concat([spglobal_df, urgewald_df], ignore_index=True)
 
-        # 3) Find columns for company, ticker, isin, etc. in the combined data
+        # 3) Identify relevant columns
         def find_co(*kw):
             return find_column(combined_df, list(kw), exclude_keywords=["parent"])
 
@@ -343,21 +314,19 @@ def main():
         production_col = find_co("10mt","5gw") or ">10MT / >5GW"
         expansion_col  = find_co("expansion") or "Expansion"
 
-        # 4) Remove duplicates only if (Company, ISIN, LEI) match
-        combined_df = remove_exact_duplicates(combined_df, company_col, isin_col, lei_col)
-
-        # 5) Create extra columns for final output
+        # 4) Create columns for final output
         combined_df["Generation (Thermal Coal) Share"] = np.nan
         combined_df["Thermal Coal Mining Share"]       = np.nan
         combined_df["Metallurgical Coal Mining Share"] = np.nan
 
-        # 6) Fill them if partial match of sector
+        # 5) Fill them if partial match of 'Sector'
         for i, row in combined_df.iterrows():
             sec_val = str(row.get(sector_col, "")).strip().lower()
+            # Use the 'coal_rev_col' as the numeric value to store in these share columns
+            # (If you actually want to read from a different numeric column, adjust here)
             val = pd.to_numeric(row.get(coal_rev_col, 0), errors="coerce") or 0.0
 
             # Generation (Thermal Coal)
-            # e.g. "thermal" plus ("generation" or "power")
             if ("thermal" in sec_val) and (("generation" in sec_val) or ("power" in sec_val)):
                 combined_df.at[i, "Generation (Thermal Coal) Share"] = val
 
@@ -369,7 +338,7 @@ def main():
             if "metallurgical" in sec_val and "coal" in sec_val and "mining" in sec_val:
                 combined_df.at[i, "Metallurgical Coal Mining Share"] = val
 
-        # 7) Filter the data
+        # 6) Filter according to your thresholds & toggles
         column_mapping = {
             "sector_col":    sector_col,
             "company_col":   company_col,
@@ -413,7 +382,7 @@ def main():
             exclude_metallurgical_coal_mining
         )
 
-        # 8) Build final output sheets
+        # 7) Build final sheets
         excluded_cols = [
             company_col,
             production_col,
@@ -448,24 +417,26 @@ def main():
         # "No Data" means missing sector info
         no_data_df = filtered_df[filtered_df[sector_col].isna()][retained_cols]
 
-        # 9) Write to Excel in-memory
+        # 8) Write final results to an in-memory Excel file
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             excluded_df.to_excel(writer, sheet_name="Excluded Companies", index=False)
             retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
             no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
 
-        # 10) Show stats & data
+        # 9) Show stats & data
         st.subheader("Statistics")
-        st.write(f"Total companies (after dedup): {len(filtered_df)}")
+        st.write(f"Total companies (all rows combined): {len(combined_df)}")
+        st.write(f"Total companies after filter: {len(filtered_df)}")
         st.write(f"Excluded companies: {len(excluded_df)}")
         st.write(f"Retained companies: {len(retained_df)}")
-        st.write(f"Companies with no data (no {sector_col}): {len(no_data_df)}")
+        st.write(f"Companies with no data in '{sector_col}': {len(no_data_df)}")
 
+        # Show a preview of final
         st.subheader("Excluded Companies")
-        st.dataframe(excluded_df)
+        st.dataframe(excluded_df.head(50))
 
-        # 11) Download button
+        # 10) Download button
         st.download_button(
             label="Download Results",
             data=output.getvalue(),
