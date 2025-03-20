@@ -107,6 +107,25 @@ def rename_with_prefix(df, prefix):
 ##############################
 # 4) MERGE & COALESCE
 ##############################
+
+# Ensure the columns used in the merge are all strings
+for col in ["SP_Company", "SP_ISIN", "SP_LEI"]:
+    if col in sp_df.columns:
+        sp_df[col] = sp_df[col].astype(str)
+
+for col in ["UR_Company", "UR_ISIN", "UR_LEI"]:
+    if col in ur_df.columns:
+        ur_df[col] = ur_df[col].astype(str)
+
+# Now do the merge
+merged_df = pd.merge(
+    sp_df,
+    ur_df,
+    how="outer",
+    left_on=["SP_Company", "SP_ISIN", "SP_LEI"],
+    right_on=["UR_Company", "UR_ISIN", "UR_LEI"]
+)
+
 def merge_sp_ur(sp_df, ur_df):
     """
     Merge sp_df and ur_df on (ISIN, LEI, Company) with a full outer join.
