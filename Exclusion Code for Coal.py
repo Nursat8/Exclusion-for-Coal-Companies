@@ -40,7 +40,9 @@ def fuzzy_rename_columns(df, rename_map):
          "Annual Coal Production (in million metric tons)": ["annual coal production"]
       })
     """
-    col_lower_map = {c:str(c).lower():c for c in df.columns}  # {lowercase : actual col in df}
+    col_lower_map = {}
+    for col_name in df.columns:
+        col_lower_map[str(col_name).lower()] = col_name
     used = set()  # track which df columns we've renamed so we don't rename multiple times
 
     for target_col, patterns in rename_map.items():
