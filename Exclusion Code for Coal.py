@@ -288,7 +288,7 @@ def filter_companies(
 ################################################
 def main():
     st.set_page_config(page_title="Coal Exclusion Filter (Merged SP & Urgewald)", layout="wide")
-    st.title("Coal Exclusion Filter: Merge SPGlobal & Urgewald (OR Logic) with All Features")
+    st.title("Coal Exclusion Filter: Merge SPGlobal & Urgewald")
 
     # FILE INPUTS
     st.sidebar.header("File & Sheet Settings")
