@@ -27,14 +27,21 @@ def make_columns_unique(df):
 
 ################################################
 # REORDER COLUMNS FOR FINAL EXCEL
-# Place "Company" in col G (7th), "BB Ticker" in AP (42nd),
-# "ISIN equity" in AQ (43rd), "LEI" in AT (46th) while keeping all other columns.
+# Force the following:
+#   "Company" in column G (7th),
+#   "BB Ticker" in column AP (42nd),
+#   "ISIN equity" in column AQ (43rd),
+#   "LEI" in column AT (46th).
+#
+# To force these positions we insert placeholder columns.
+# Immediately after reordering we drop any columns named "(placeholder)"
+# that are completely empty.
 ################################################
 def reorder_for_excel(df):
-    desired_length = 46  # We want columns A..AT (i.e. 46 columns)
+    desired_length = 46  # We want to force 46 columns (A..AT)
     placeholders = ["(placeholder)"] * desired_length
 
-    # Force our specific columns at these positions (0-indexed)
+    # Force required columns at fixed positions (0-indexed)
     placeholders[6]   = "Company"      # Column G (7th)
     placeholders[41]  = "BB Ticker"    # Column AP (42nd)
     placeholders[42]  = "ISIN equity"  # Column AQ (43rd)
@@ -44,6 +51,7 @@ def reorder_for_excel(df):
     forced_cols = {"Company", "BB Ticker", "ISIN equity", "LEI"}
 
     all_cols = list(df.columns)
+    # Remove forced columns from remaining list
     remaining_cols = [c for c in all_cols if c not in forced_cols]
 
     idx_remain = 0
@@ -56,16 +64,20 @@ def reorder_for_excel(df):
     leftover = remaining_cols[idx_remain:]
     final_col_order = placeholders + leftover
 
-    # Ensure each placeholder column exists in df (create blank ones if needed)
+    # For any placeholder column not found in df, create an empty column.
     for c in final_col_order:
-        if c not in df.columns:
+        if c not in df.columns and c == "(placeholder)":
             df[c] = np.nan
-    return df[final_col_order]
+
+    df = df[final_col_order]
+    # Now drop any placeholder columns that are entirely NaN.
+    df = df.loc[:, ~(df.columns == "(placeholder)") | (df.notna().any())]
+    return df
 
 ################################################
 # LOAD SPGLOBAL WITH AUTO-DETECTION OF MULTI-HEADER
-#   - Row 5 (index=4) has ID columns (e.g. SP_ENTITY_NAME)
-#   - Row 6 (index=5) has additional fields (e.g. Generation (Thermal Coal))
+#   - Row 5 (index=4) contains ID columns (e.g. SP_ENTITY_NAME)
+#   - Row 6 (index=5) contains additional fields (e.g. Generation (Thermal Coal))
 #   - Data starts at row 7 (index=6)
 ################################################
 def load_spglobal_autodetect(file, sheet_name):
@@ -89,7 +101,7 @@ def load_spglobal_autodetect(file, sheet_name):
         sp_df = full_df.iloc[6:].reset_index(drop=True)
         sp_df.columns = final_cols
         sp_df = make_columns_unique(sp_df)
-        # Optionally rename columns (strip prefixes, etc.)
+        # Optionally rename columns (e.g., remove prefixes)
         rename_map_sp = {
             "SP_ESG_BUS_INVOLVE_REV_PCT Generation (Thermal Coal)": "Generation (Thermal Coal)",
             "SP_ESG_BUS_INVOLVE_REV_PCT Thermal Coal Mining":       "Thermal Coal Mining",
@@ -168,7 +180,7 @@ def merge_ur_into_sp(sp_df, ur_df):
             if (ur_key_name and sp_key_name and ur_key_name == sp_key_name) or \
                (ur_key_isin and sp_key_isin and ur_key_isin == sp_key_isin) or \
                (ur_key_lei and sp_key_lei and ur_key_lei == sp_key_lei):
-                # For each column, if the SP record is empty, fill it with the UR value.
+                # Merge non-empty values from UR row into the SP record.
                 for k, v in ur_row.items():
                     if (k not in rec) or (rec[k] is None) or (str(rec[k]).strip() == ""):
                         rec[k] = v
@@ -183,7 +195,7 @@ def merge_ur_into_sp(sp_df, ur_df):
     return merged_df
 
 ################################################
-# FILTER COMPANIES (Thresholds/Exclusion Logic)
+# FILTER COMPANIES (Thresholds / Exclusion Logic)
 ################################################
 def filter_companies(
     df,
@@ -203,7 +215,7 @@ def filter_companies(
     services_rev_threshold,
     exclude_services,
     exclude_services_rev,
-    # Additional coal involvement thresholds
+    # Additional involvement thresholds (do NOT multiply by 100)
     generation_thermal_threshold,
     exclude_generation_thermal,
     thermal_coal_mining_threshold,
@@ -230,7 +242,7 @@ def filter_companies(
         installed_cap = pd.to_numeric(row.get("Installed Coal Power Capacity (MW)", 0), errors="coerce") or 0.0
         annual_coal_prod = pd.to_numeric(row.get("Annual Coal Production (in million metric tons)", 0), errors="coerce") or 0.0
 
-        # Additional coal involvement columns
+        # Additional involvement values (already percentages)
         gen_thermal_val = pd.to_numeric(row.get("Generation (Thermal Coal)", 0), errors="coerce") or 0.0
         therm_mining_val = pd.to_numeric(row.get("Thermal Coal Mining", 0), errors="coerce") or 0.0
         met_coal_val = pd.to_numeric(row.get("Metallurgical Coal Mining", 0), errors="coerce") or 0.0
@@ -251,13 +263,13 @@ def filter_companies(
         if is_services and exclude_services:
             if exclude_services_rev and (coal_rev * 100) > services_rev_threshold:
                 reasons.append(f"Coal share of revenue {coal_rev*100:.2f}% > {services_rev_threshold}% (Services)")
-        # Additional thresholds
-        if exclude_generation_thermal and (gen_thermal_val * 100) > generation_thermal_threshold:
-            reasons.append(f"Generation (Thermal Coal) {gen_thermal_val*100:.2f}% > {generation_thermal_threshold}%")
-        if exclude_thermal_coal_mining and (therm_mining_val * 100) > thermal_coal_mining_threshold:
-            reasons.append(f"Thermal Coal Mining {therm_mining_val*100:.2f}% > {thermal_coal_mining_threshold}%")
-        if exclude_metallurgical_coal_mining and (met_coal_val * 100) > metallurgical_coal_mining_threshold:
-            reasons.append(f"Metallurgical Coal Mining {met_coal_val*100:.2f}% > {metallurgical_coal_mining_threshold}%")
+        # Additional thresholds (DO NOT multiply by 100 here)
+        if exclude_generation_thermal and (gen_thermal_val) > generation_thermal_threshold:
+            reasons.append(f"Generation (Thermal Coal) {gen_thermal_val:.2f}% > {generation_thermal_threshold}%")
+        if exclude_thermal_coal_mining and (therm_mining_val) > thermal_coal_mining_threshold:
+            reasons.append(f"Thermal Coal Mining {therm_mining_val:.2f}% > {thermal_coal_mining_threshold}%")
+        if exclude_metallurgical_coal_mining and (met_coal_val) > metallurgical_coal_mining_threshold:
+            reasons.append(f"Metallurgical Coal Mining {met_coal_val:.2f}% > {metallurgical_coal_mining_threshold}%")
         # Expansions
         if expansions_global:
             for kw in expansions_global:
@@ -285,7 +297,7 @@ def main():
     sp_file = st.sidebar.file_uploader("Upload SPGlobal Excel file", type=["xlsx"])
     ur_file = st.sidebar.file_uploader("Upload Urgewald Excel file", type=["xlsx"])
 
-    # THRESHOLD TOGGLES (same as before)
+    # THRESHOLD TOGGLES
     st.sidebar.header("Mining Thresholds")
     exclude_mining = st.sidebar.checkbox("Exclude Mining", value=True)
     mining_prod_mt_threshold = st.sidebar.number_input("Mining: Max production (MT)", value=10.0)
@@ -337,12 +349,12 @@ def main():
         st.write("Urgewald columns:", ur_df.columns.tolist())
         st.dataframe(ur_df.head(5))
 
-        # 2) Merge Urgewald into SPGlobal (only merge when keys match)
+        # 2) Merge Urgewald into SPGlobal:
         merged = merge_ur_into_sp(sp_df, ur_df)
         st.write(f"After merging: {merged.shape[0]} companies")
         st.dataframe(merged.head(5))
 
-        # 3) Apply filtering (exclusion logic based on thresholds)
+        # 3) Apply filtering (exclusion logic)
         filtered = filter_companies(
             df=merged,
             mining_prod_mt_threshold=mining_prod_mt_threshold,
@@ -375,7 +387,7 @@ def main():
         else:
             no_data_df = pd.DataFrame()
 
-        # 5) Ensure final columns exist
+        # 5) Final columns to keep (as before)
         final_cols = [
             "SP_ENTITY_NAME", "SP_ENTITY_ID", "SP_COMPANY_ID", "SP_ISIN", "SP_LEI",
             "Company", "ISIN equity", "LEI", "BB Ticker",
@@ -401,7 +413,9 @@ def main():
         if not no_data_df.empty:
             no_data_df = ensure_cols_exist(no_data_df)[final_cols]
 
-        # 6) Reorder columns so that "Company" is at G, "BB Ticker" at AP, "ISIN equity" at AQ, "LEI" at AT
+        # 6) Reorder columns so that "Company" is in column G, "BB Ticker" in column AP,
+        #    "ISIN equity" in column AQ, and "LEI" in column AT.
+        #    (After reordering, any placeholder columns that are entirely empty are dropped.)
         excluded_df = reorder_for_excel(excluded_df)
         retained_df = reorder_for_excel(retained_df)
         if not no_data_df.empty:
