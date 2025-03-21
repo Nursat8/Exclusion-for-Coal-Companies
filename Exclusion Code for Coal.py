@@ -218,6 +218,26 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
         st.error(f"Error loading Urgewald: {e}")
         return pd.DataFrame()
 
+def make_columns_unique(df):
+    """
+    If there are duplicate column names, append _1, _2, etc. 
+    so PyArrow won't complain in st.dataframe.
+    """
+    seen = {}
+    new_cols = []
+    for col in df.columns:
+        if col not in seen:
+            seen[col] = 0
+            new_cols.append(col)
+        else:
+            seen[col] += 1
+            new_cols.append(f"{col}_{seen[col]}")
+    df.columns = new_cols
+    return df
+
+ur_df = load_urgewald_data(ur_file, ur_sheet)
+ur_df = make_columns_unique(ur_df)
+st.dataframe(ur_df.head(5))  # Will no longer raise a duplicate-columns error
 ################################################
 # 6) MERGE URGEWALD INTO SPGLOBAL
 #    If row matches by (Name OR ISIN OR LEI),
