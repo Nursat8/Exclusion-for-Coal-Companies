@@ -130,6 +130,23 @@ def load_spglobal_dynamic(file, sheet_name="Sheet1"):
 #   - data from row 2 onward
 #   - Then fuzzy rename to standard column names so the filter logic can find them
 ################################################
+
+def make_columns_unique(df):
+    """
+    If there are duplicate column names, append _1, _2, etc. to make them unique.
+    """
+    seen = {}
+    new_cols = []
+    for col in df.columns:
+        if col not in seen:
+            seen[col] = 0
+            new_cols.append(col)
+        else:
+            seen[col] += 1
+            new_cols.append(f"{col}_{seen[col]}")
+    df.columns = new_cols
+    return df
+
 def load_urgewald_data(file, sheet_name="GCEL 2024"):
     try:
         wb = openpyxl.load_workbook(file, data_only=True)
