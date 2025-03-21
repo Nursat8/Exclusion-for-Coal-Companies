@@ -3,15 +3,13 @@ import pandas as pd
 import numpy as np
 import io
 import openpyxl
-import time  # For runtime timing
+import time
 
 ################################################
 # 1. MAKE COLUMNS UNIQUE
 ################################################
 def make_columns_unique(df):
-    """
-    Append _1, _2, etc. to duplicate column names to avoid pyarrow errors.
-    """
+    """Append _1, _2, etc. to duplicate column names to avoid pyarrow errors."""
     seen = {}
     new_cols = []
     for col in df.columns:
@@ -29,7 +27,7 @@ def make_columns_unique(df):
 ################################################
 def fuzzy_rename_columns(df, rename_map):
     """
-    Rename columns based on patterns. 
+    Rename columns based on patterns.
     rename_map: { final_name: [pattern1, pattern2, ...], ... }
     """
     used_cols = set()
@@ -48,8 +46,9 @@ def fuzzy_rename_columns(df, rename_map):
 
 ################################################
 # 3. REORDER COLUMNS FOR FINAL EXCEL
-# Force "Company" in G, "BB Ticker" in AP, "ISIN equity" in AQ, "LEI" in AT,
-# and then move "Excluded" and "Exclusion Reasons" to the end.
+# Force "Company" in column G, "BB Ticker" in AP,
+# "ISIN equity" in AQ, "LEI" in AT,
+# and then move "Excluded" and "Exclusion Reasons" to the very end.
 ################################################
 def reorder_for_excel(df):
     desired_length = 46  # Force positions for columns A..AT (1..46)
@@ -77,16 +76,14 @@ def reorder_for_excel(df):
     leftover = remaining_cols[idx_remain:]
     final_col_order = placeholders + leftover
 
-    # Create empty columns for any remaining placeholder if needed
     for c in final_col_order:
         if c not in df.columns and c == "(placeholder)":
             df[c] = np.nan
 
     df = df[final_col_order]
-    # Drop placeholder columns that are completely empty
     df = df.loc[:, ~((df.columns == "(placeholder)") & (df.isna().all()))]
 
-    # Move "Excluded" and "Exclusion Reasons" to the end, if present.
+    # Move "Excluded" and "Exclusion Reasons" to the end if present.
     cols = list(df.columns)
     for c in ["Excluded", "Exclusion Reasons"]:
         if c in cols:
@@ -174,7 +171,7 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
         return pd.DataFrame()
 
 ################################################
-# 6. MERGE URGEWALD INTO SPGLOBAL
+# 6. MERGE URGEWALD INTO SPGLOBAL (Optimized with Dictionaries)
 ################################################
 def unify_name(r):
     sp_name = str(r.get("SP_ENTITY_NAME", "")).strip().lower()
@@ -193,31 +190,42 @@ def unify_lei(r):
 
 def merge_ur_into_sp(sp_df, ur_df):
     sp_records = sp_df.to_dict("records")
-    merged_records = []
+    # Build dictionaries for faster lookup:
+    name_dict = {}
+    isin_dict = {}
+    lei_dict = {}
+    for i, rec in enumerate(sp_records):
+        n = unify_name(rec)
+        if n:
+            name_dict.setdefault(n, []).append(i)
+        iis = unify_isin(rec)
+        if iis:
+            isin_dict.setdefault(iis, []).append(i)
+        l = unify_lei(rec)
+        if l:
+            lei_dict.setdefault(l, []).append(i)
+    merged_records = sp_records.copy()
     ur_only_records = []
-    for rec in sp_records:
-        rec["Source"] = "SP"
-        merged_records.append(rec)
     for _, ur_row in ur_df.iterrows():
-        merged_flag = False
-        for rec in merged_records:
-            if ((unify_name(rec) and unify_name(ur_row) and unify_name(rec) == unify_name(ur_row)) or
-                (unify_isin(rec) and unify_isin(ur_row) and unify_isin(rec) == unify_isin(ur_row)) or
-                (unify_lei(rec) and unify_lei(ur_row) and unify_lei(rec) == unify_lei(ur_row))):
-                for k, v in ur_row.items():
-                    if (k not in rec) or (rec[k] is None) or (str(rec[k]).strip() == ""):
-                        rec[k] = v
-                rec["Source"] = "SP+UR"
-                merged_flag = True
-                break
-        if not merged_flag:
-            new_rec = ur_row.to_dict()
-            new_rec["Source"] = "UR"
-            ur_only_records.append(new_rec)
+        n = unify_name(ur_row)
+        iis = unify_isin(ur_row)
+        l = unify_lei(ur_row)
+        indices = set()
+        if n and n in name_dict:
+            indices.update(name_dict[n])
+        if iis and iis in isin_dict:
+            indices.update(isin_dict[iis])
+        if l and l in lei_dict:
+            indices.update(lei_dict[l])
+        if indices:
+            index = list(indices)[0]
+            for k, v in ur_row.items():
+                if (k not in merged_records[index]) or (merged_records[index][k] is None) or (str(merged_records[index][k]).strip() == ""):
+                    merged_records[index][k] = v
+        else:
+            ur_only_records.append(ur_row.to_dict())
     merged_df = pd.DataFrame(merged_records)
     ur_only_df = pd.DataFrame(ur_only_records)
-    merged_df.drop(columns=["Source"], inplace=True, errors="ignore")
-    ur_only_df.drop(columns=["Source"], inplace=True, errors="ignore")
     return merged_df, ur_only_df
 
 ################################################
@@ -251,7 +259,7 @@ def filter_companies(
     exclude_services_rev,
     # Global expansions:
     expansions_global,
-    # New booleans to apply or turn off coal revenue thresholds:
+    # New booleans for revenue thresholds:
     apply_mining_coal_rev,
     apply_power_coal_rev
 ):
@@ -338,7 +346,7 @@ def main():
 
     # Mining Thresholds
     with st.sidebar.expander("Mining Thresholds", expanded=True):
-        # Removed the "Exclude Mining Sector?" checkbox (always applied)
+        # Removed "Exclude Mining Sector?" button (always applied)
         apply_mining_coal_rev = st.checkbox("Apply Mining: Max coal revenue threshold?", value=True)
         mining_coal_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=15.0)
         exclude_mining_prod_mt = st.checkbox("Exclude if >10MT indicated?", value=True)
@@ -352,7 +360,7 @@ def main():
 
     # Power Thresholds
     with st.sidebar.expander("Power Thresholds", expanded=True):
-        # Removed the "Exclude Power Sector?" checkbox (always applied)
+        # Removed "Exclude Power Sector?" button (always applied)
         apply_power_coal_rev = st.checkbox("Apply Power: Max coal revenue threshold?", value=True)
         power_coal_rev_threshold = st.number_input("Power: Max coal revenue (%)", value=20.0)
         exclude_power_prod_percent = st.checkbox("Exclude if coal power production > threshold?", value=True)
@@ -364,7 +372,7 @@ def main():
 
     # Services Thresholds
     with st.sidebar.expander("Services Thresholds", expanded=False):
-        # Removed the "Exclude Services Sector?" checkbox (always applied)
+        # Removed "Exclude Services Sector?" button (always applied)
         exclude_services_rev = st.checkbox("Exclude if services revenue > threshold?", value=False)
         services_rev_threshold = st.number_input("Services: Max coal revenue (%)", value=10.0)
 
@@ -390,8 +398,7 @@ def main():
             st.warning("SPGlobal data is empty or not loaded.")
             return
         sp_df = make_columns_unique(sp_df)
-        st.subheader("SPGlobal Data (first 5 rows)")
-        st.dataframe(sp_df.head(5))
+        # (Skipping demonstration of rows for speed)
 
         # Load Urgewald
         ur_df = load_urgewald(ur_file, ur_sheet)
@@ -399,13 +406,9 @@ def main():
             st.warning("Urgewald data is empty or not loaded.")
             return
         ur_df = make_columns_unique(ur_df)
-        st.subheader("Urgewald Data (first 5 rows)")
-        st.dataframe(ur_df.head(5))
 
-        # Merge UR into SP
+        # Merge UR into SP using optimized dictionary lookup
         merged_df, ur_only_df = merge_ur_into_sp(sp_df, ur_df)
-        st.write(f"Merged dataset shape: {merged_df.shape}")
-        st.write(f"Urgewald-only dataset shape: {ur_only_df.shape}")
 
         # Apply filtering on merged and UR-only sets
         filtered_merged = filter_companies(
@@ -512,9 +515,9 @@ def main():
             retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
             filtered_ur_only.to_excel(writer, sheet_name="Urgewald Only", index=False)
 
-        # Stop runtime timer and show elapsed time
-        end_time = time.time()
-        elapsed = end_time - start_time
+        # End runtime timer and calculate elapsed time
+        elapsed = time.time() - start_time
+
         st.subheader("Results Summary")
         st.write(f"Merged Total: {len(filtered_merged)}")
         st.write(f"Excluded (Merged): {len(excluded_df)}")
