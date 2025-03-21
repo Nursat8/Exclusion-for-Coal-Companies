@@ -128,12 +128,6 @@ def load_spglobal(file, sheet_name="Sheet1"):
             "Generation (Thermal Coal)":       ["generation (thermal coal)"],
             "Thermal Coal Mining":             ["thermal coal mining"],
             "Metallurgical Coal Mining":       ["metallurgical coal mining"],
-            "Coal Share of Revenue":           ["coal share of revenue"],
-            "Coal Share of Power Production":  ["coal share of power production"],
-            "Installed Coal Power Capacity (MW)": ["installed coal power capacity"],
-            "Coal Industry Sector":            ["coal industry sector", "industry sector"],
-            ">10MT / >5GW":                    [">10mt", ">5gw"],
-            "expansion":                       ["expansion"],
         }
         sp_data_df = fuzzy_rename_columns(sp_data_df, rename_map_sp)
         return sp_data_df
