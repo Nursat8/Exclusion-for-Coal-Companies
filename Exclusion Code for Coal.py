@@ -25,14 +25,14 @@ def make_columns_unique(df):
 ################################################
 # REORDER COLUMNS FOR FINAL EXCEL
 # Force:
-#   "Company" in column G (7th),
-#   "BB Ticker" in column AP (42nd),
-#   "ISIN equity" in column AQ (43rd),
-#   "LEI" in column AT (46th).
-# Then, move "Excluded" and "Exclusion Reasons" to the very end.
+#   "Company" in col G (7th),
+#   "BB Ticker" in col AP (42nd),
+#   "ISIN equity" in col AQ (43rd),
+#   "LEI" in col AT (46th),
+# and then move "Excluded" and "Exclusion Reasons" to the very end.
 ################################################
 def reorder_for_excel(df):
-    desired_length = 46  # Force positions for columns A..AT (46 columns)
+    desired_length = 46  # Force positions for columns A..AT
     placeholders = ["(placeholder)"] * desired_length
 
     # Force required columns at fixed positions (0-indexed)
@@ -65,8 +65,7 @@ def reorder_for_excel(df):
     df = df[final_col_order]
     # Drop any placeholder columns that are completely empty.
     df = df.loc[:, ~((df.columns == "(placeholder)") & (df.isna().all()))]
-    
-    # Now, ensure "Excluded" and "Exclusion Reasons" are the very last columns.
+    # Finally, move "Excluded" and "Exclusion Reasons" to the end.
     cols = list(df.columns)
     if "Excluded" in cols and "Exclusion Reasons" in cols:
         cols = [c for c in cols if c not in ["Excluded", "Exclusion Reasons"]] + ["Excluded", "Exclusion Reasons"]
@@ -75,9 +74,9 @@ def reorder_for_excel(df):
 
 ################################################
 # LOAD SPGLOBAL WITH AUTO-DETECTION OF MULTI-HEADER
-#   Row 5 (index=4): ID columns (e.g., SP_ENTITY_NAME)
-#   Row 6 (index=5): Additional fields (e.g., Generation (Thermal Coal))
-#   Data starts at row 7 (index=6)
+# Row 5 (index=4): ID columns (e.g., SP_ENTITY_NAME)
+# Row 6 (index=5): Additional fields (e.g., Generation (Thermal Coal))
+# Data starts at row 7 (index=6)
 ################################################
 def load_spglobal_autodetect(file, sheet_name):
     try:
@@ -100,7 +99,7 @@ def load_spglobal_autodetect(file, sheet_name):
         sp_df = full_df.iloc[6:].reset_index(drop=True)
         sp_df.columns = final_cols
         sp_df = make_columns_unique(sp_df)
-        # Optional renaming to simplify headers:
+        # Rename to simplify headers if needed.
         rename_map_sp = {
             "SP_ESG_BUS_INVOLVE_REV_PCT Generation (Thermal Coal)": "Generation (Thermal Coal)",
             "SP_ESG_BUS_INVOLVE_REV_PCT Thermal Coal Mining":       "Thermal Coal Mining",
@@ -193,15 +192,15 @@ def merge_ur_into_sp(sp_df, ur_df):
 def filter_companies(
     df,
     # Mining thresholds:
-    mining_prod_mt_threshold,      # For Annual Coal Production (MT) and also used for >10MT check
-    mining_coal_rev_threshold,       # Allowed maximum coal revenue (%) for mining
+    mining_prod_mt_threshold,      # Numeric threshold for annual production (MT)
+    mining_coal_rev_threshold,       # Max allowed coal revenue (%) for mining
     exclude_mining,
     exclude_mining_prod_mt,
-    exclude_mining_prod_gw,          # Checkbox to apply GW threshold
-    mining_prod_threshold_GW,        # Max production (GW) allowed for mining (used with >5GW check)
+    exclude_mining_prod_gw,          # Checkbox for GW check
+    mining_prod_threshold_GW,        # Numeric threshold (GW) for mining production
     # Power thresholds:
-    power_coal_rev_threshold,        # Allowed maximum coal revenue (%) for power
-    power_prod_threshold_percent,    # Allowed maximum coal power production (%)
+    power_coal_rev_threshold,        # Max allowed coal revenue (%) for power
+    power_prod_threshold_percent,    # Max allowed coal power production (%)
     capacity_threshold_mw,           # Installed capacity (MW)
     exclude_power,
     exclude_power_prod_percent,
@@ -210,14 +209,14 @@ def filter_companies(
     services_rev_threshold,
     exclude_services,
     exclude_services_rev,
-    # Business involvement thresholds (sector-specific):
-    generation_thermal_threshold,    # For power: Generation (Thermal Coal) %
+    # Business involvement thresholds:
+    generation_thermal_threshold,    # For power: Generation (Thermal Coal) (%)
     exclude_generation_thermal,
-    thermal_coal_mining_threshold,   # For mining: Thermal Coal Mining %
+    thermal_coal_mining_threshold,   # For mining: Thermal Coal Mining (%)
     exclude_thermal_coal_mining,
-    metallurgical_coal_mining_threshold,  # For mining: Metallurgical Coal Mining %
+    metallurgical_coal_mining_threshold,  # For mining: Metallurgical Coal Mining (%)
     exclude_metallurgical_coal_mining,
-    # Global expansion keywords:
+    # Global expansion:
     expansions_global
 ):
     exclusion_flags = []
@@ -230,40 +229,40 @@ def filter_companies(
         is_services = ("service" in sector_val)
         expansion_text = str(row.get("expansion", "")).lower()
 
-        # Numeric columns
+        # Numeric values
         coal_rev = pd.to_numeric(row.get("Coal Share of Revenue", 0), errors="coerce") or 0.0
         coal_power_share = pd.to_numeric(row.get("Coal Share of Power Production", 0), errors="coerce") or 0.0
         installed_cap = pd.to_numeric(row.get("Installed Coal Power Capacity (MW)", 0), errors="coerce") or 0.0
         annual_coal_prod = pd.to_numeric(row.get("Annual Coal Production (in million metric tons)", 0), errors="coerce") or 0.0
-        # Additional involvement values (already percentages)
+        # Business involvement values (already percentages, do not multiply)
         gen_thermal_val = pd.to_numeric(row.get("Generation (Thermal Coal)", 0), errors="coerce") or 0.0
         therm_mining_val = pd.to_numeric(row.get("Thermal Coal Mining", 0), errors="coerce") or 0.0
         met_coal_val = pd.to_numeric(row.get("Metallurgical Coal Mining", 0), errors="coerce") or 0.0
         # Production string from ">10MT / >5GW" column
         prod_str = str(row.get(">10MT / >5GW", "")).upper()
 
-        # MINING: (applies only if company is in mining sector)
+        # --- MINING checks ---
         if is_mining and exclude_mining:
             if exclude_mining_prod_mt:
                 if annual_coal_prod > mining_prod_mt_threshold:
                     reasons.append(f"Annual production {annual_coal_prod:.2f}MT > {mining_prod_mt_threshold}MT")
-                # Check production string:
-                if ">10MT" in prod_str:
+                # Check text indicator for >10MT:
+                if "10MT" in prod_str:  # Accepts ">10MT" or "10MT"
                     if mining_prod_mt_threshold < 10:
-                        reasons.append(f"Production indicated as >10MT (threshold {mining_prod_mt_threshold}MT)")
-                if ">5GW" in prod_str and exclude_mining_prod_gw:
+                        reasons.append(f"Production indicator '>10MT' found (allowed threshold {mining_prod_mt_threshold}MT)")
+            if exclude_mining_prod_gw:
+                # Check text indicator for >5GW:
+                if "5GW" in prod_str:  # Accepts ">5GW" or "5GW"
                     if mining_prod_threshold_GW < 5:
-                        reasons.append(f"Production indicated as >5GW (threshold {mining_prod_threshold_GW}GW)")
-            # Check coal revenue for mining:
+                        reasons.append(f"Production indicator '>5GW' found (allowed threshold {mining_prod_threshold_GW}GW)")
             if (coal_rev * 100) > mining_coal_rev_threshold:
                 reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {mining_coal_rev_threshold}% (Mining)")
-            # Check Thermal Coal Mining threshold:
             if exclude_thermal_coal_mining and (therm_mining_val) > thermal_coal_mining_threshold:
                 reasons.append(f"Thermal Coal Mining {therm_mining_val:.2f}% > {thermal_coal_mining_threshold}% (Mining)")
-            # Check Metallurgical Coal Mining threshold:
             if exclude_metallurgical_coal_mining and (met_coal_val) > metallurgical_coal_mining_threshold:
                 reasons.append(f"Metallurgical Coal Mining {met_coal_val:.2f}% > {metallurgical_coal_mining_threshold}% (Mining)")
-        # POWER:
+
+        # --- POWER checks ---
         if is_power and exclude_power:
             if (coal_rev * 100) > power_coal_rev_threshold:
                 reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {power_coal_rev_threshold}% (Power)")
@@ -273,16 +272,19 @@ def filter_companies(
                 reasons.append(f"Installed capacity {installed_cap:.2f}MW > {capacity_threshold_mw}MW")
             if exclude_generation_thermal and (gen_thermal_val) > generation_thermal_threshold:
                 reasons.append(f"Generation (Thermal Coal) {gen_thermal_val:.2f}% > {generation_thermal_threshold}% (Power)")
-        # SERVICES:
+
+        # --- SERVICES checks ---
         if is_services and exclude_services:
             if exclude_services_rev and (coal_rev * 100) > services_rev_threshold:
                 reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {services_rev_threshold}% (Services)")
-        # Global expansions (applied to all sectors)
+
+        # --- Global expansion ---
         if expansions_global:
             for kw in expansions_global:
                 if kw.lower() in expansion_text:
                     reasons.append(f"Expansion matched '{kw}'")
                     break
+
         exclusion_flags.append(bool(reasons))
         exclusion_reasons.append("; ".join(reasons) if reasons else "")
     df["Excluded"] = exclusion_flags
@@ -294,41 +296,41 @@ def filter_companies(
 ################################################
 def main():
     st.set_page_config(page_title="Coal Exclusion Filter (Merged SP & Urgewald)", layout="wide")
-    st.title("Coal Exclusion Filter: Merge SPGlobal & Urgewald with Updated Production Thresholds")
+    st.title("Coal Exclusion Filter: Merged SPGlobal & Urgewald with Sector-Specific Production Thresholds")
 
-    # FILE INPUTS
-    st.sidebar.header("File & Sheet Settings")
+    # --- File & Sheet Settings ---
+    st.sidebar.subheader("File & Sheet Settings")
     sp_sheet = st.sidebar.text_input("SPGlobal Sheet Name", value="Sheet1")
     ur_sheet = st.sidebar.text_input("Urgewald Sheet Name", value="GCEL 2024")
     sp_file = st.sidebar.file_uploader("Upload SPGlobal Excel file", type=["xlsx"])
     ur_file = st.sidebar.file_uploader("Upload Urgewald Excel file", type=["xlsx"])
 
-    # MINING THRESHOLDS
-    st.sidebar.header("Mining Thresholds")
+    # --- Mining Thresholds ---
+    st.sidebar.subheader("Mining Thresholds")
     exclude_mining = st.sidebar.checkbox("Exclude Mining", value=True)
-    mining_prod_mt_threshold = st.sidebar.number_input("Mining: Max production (MT)", value=10.0)
+    mining_prod_mt_threshold = st.sidebar.number_input("Max production (MT) for Mining", value=10.0)
     exclude_mining_prod_mt = st.sidebar.checkbox("Apply MT production threshold?", value=True)
     exclude_mining_prod_gw = st.sidebar.checkbox("Apply GW production threshold?", value=True)
-    mining_prod_threshold_GW = st.sidebar.number_input("Mining: Max production (GW)", value=5.0)
-    mining_coal_rev_threshold = st.sidebar.number_input("Mining: Max coal revenue (%)", value=15.0)
+    mining_prod_threshold_GW = st.sidebar.number_input("Max production (GW) for Mining", value=5.0)
+    mining_coal_rev_threshold = st.sidebar.number_input("Max coal revenue (%) for Mining", value=15.0)
 
-    # POWER THRESHOLDS
-    st.sidebar.header("Power Thresholds")
+    # --- Power Thresholds ---
+    st.sidebar.subheader("Power Thresholds")
     exclude_power = st.sidebar.checkbox("Exclude Power", value=True)
-    power_prod_threshold_percent = st.sidebar.number_input("Power: Max coal power production (%)", value=20.0)
+    power_prod_threshold_percent = st.sidebar.number_input("Max coal power production (%)", value=20.0)
     exclude_power_prod_percent = st.sidebar.checkbox("Apply power production threshold?", value=True)
-    capacity_threshold_mw = st.sidebar.number_input("Power: Max installed capacity (MW)", value=10000.0)
+    capacity_threshold_mw = st.sidebar.number_input("Max installed capacity (MW)", value=10000.0)
     exclude_capacity_mw = st.sidebar.checkbox("Apply capacity threshold?", value=True)
-    power_coal_rev_threshold = st.sidebar.number_input("Power: Max coal revenue (%)", value=20.0)
+    power_coal_rev_threshold = st.sidebar.number_input("Max coal revenue (%) for Power", value=20.0)
 
-    # SERVICES THRESHOLDS
-    st.sidebar.header("Services Thresholds")
+    # --- Services Thresholds ---
+    st.sidebar.subheader("Services Thresholds")
     exclude_services = st.sidebar.checkbox("Exclude Services", value=False)
-    services_rev_threshold = st.sidebar.number_input("Services: Max coal revenue (%)", value=10.0)
+    services_rev_threshold = st.sidebar.number_input("Max coal revenue (%) for Services", value=10.0)
     exclude_services_rev = st.sidebar.checkbox("Apply services revenue threshold?", value=False)
 
-    # BUSINESS INVOLVEMENT THRESHOLDS (Sector-specific)
-    st.sidebar.header("Business Involvement Thresholds (%)")
+    # --- Business Involvement (Sector-specific) ---
+    st.sidebar.subheader("Business Involvement Thresholds (%)")
     # For Power:
     exclude_generation_thermal = st.sidebar.checkbox("Exclude Power if Generation (Thermal Coal) > threshold", value=False)
     generation_thermal_threshold = st.sidebar.number_input("Max allowed Generation (Thermal Coal) (%)", value=20.0)
@@ -338,8 +340,8 @@ def main():
     exclude_metallurgical_coal_mining = st.sidebar.checkbox("Exclude Mining if Metallurgical Coal Mining > threshold", value=False)
     metallurgical_coal_mining_threshold = st.sidebar.number_input("Max allowed Metallurgical Coal Mining (%)", value=20.0)
 
-    # GLOBAL EXPANSION
-    st.sidebar.header("Global Expansion Exclusion")
+    # --- Global Expansion ---
+    st.sidebar.subheader("Global Expansion Exclusion")
     expansions_possible = ["mining", "infrastructure", "power", "subsidiary of a coal developer"]
     expansions_global = st.sidebar.multiselect("Exclude if expansion text contains any of these", expansions_possible, default=[])
 
@@ -348,29 +350,29 @@ def main():
             st.warning("Please provide both SPGlobal and Urgewald files.")
             return
 
-        # 1) Load SPGlobal and Urgewald data
+        # Load files
         sp_df = load_spglobal_autodetect(sp_file, sp_sheet)
-        if sp_df is None or sp_df.empty:
+        if sp_df.empty:
             st.warning("SPGlobal data is empty or could not be loaded.")
             return
         st.write("SPGlobal columns:", sp_df.columns.tolist())
         st.dataframe(sp_df.head(5))
 
         ur_df = load_urgewald_data(ur_file, ur_sheet)
-        if ur_df is None or ur_df.empty:
+        if ur_df.empty:
             st.warning("Urgewald data is empty or could not be loaded.")
             return
         st.write("Urgewald columns:", ur_df.columns.tolist())
         st.dataframe(ur_df.head(5))
 
-        # 2) Merge UR rows into SPGlobal; keep UR-only separately.
+        # Merge UR into SP; keep UR-only separately.
         merged_df, ur_only_df = merge_ur_into_sp(sp_df, ur_df)
         st.write(f"After merging: {merged_df.shape[0]} merged companies")
         st.dataframe(merged_df.head(5))
         st.write(f"UR-only companies: {ur_only_df.shape[0]}")
         st.dataframe(ur_only_df.head(5))
 
-        # 3) Apply filtering on merged and UR-only sets.
+        # Apply filtering
         filtered_merged = filter_companies(
             df=merged_df,
             mining_prod_mt_threshold=mining_prod_mt_threshold,
@@ -422,11 +424,11 @@ def main():
             expansions_global=expansions_global
         )
 
-        # 4) Separate filtered merged into Excluded and Retained.
+        # Separate merged set into Excluded and Retained.
         excluded_df = filtered_merged[filtered_merged["Excluded"] == True].copy()
         retained_df = filtered_merged[filtered_merged["Excluded"] == False].copy()
 
-        # 5) Define final columns – note that "Excluded" and "Exclusion Reasons" will be moved to the end.
+        # Define final columns.
         final_cols = [
             "SP_ENTITY_NAME", "SP_ENTITY_ID", "SP_COMPANY_ID", "SP_ISIN", "SP_LEI",
             "Company", "ISIN equity", "LEI", "BB Ticker",
@@ -451,16 +453,15 @@ def main():
         retained_df = ensure_cols_exist(retained_df)[final_cols]
         filtered_ur_only = ensure_cols_exist(filtered_ur_only)[final_cols]
 
-        # 6) Reorder columns so that "Company" is in col G, "BB Ticker" in AP,
-        # "ISIN equity" in AQ, "LEI" in AT. Then ensure "Excluded" and "Exclusion Reasons" are at the end.
+        # Reorder columns so that:
+        # "Company" -> G, "BB Ticker" -> AP, "ISIN equity" -> AQ, "LEE" -> AT,
+        # and "Excluded" & "Exclusion Reasons" are at the end.
         excluded_df = reorder_for_excel(excluded_df)
         retained_df = reorder_for_excel(retained_df)
         filtered_ur_only = reorder_for_excel(filtered_ur_only)
 
-        # 7) Write to Excel with three sheets:
-        #    - "Excluded Companies" (merged set)
-        #    - "Retained Companies" (merged set)
-        #    - "Urgewald Only" (UR-only companies that did not match SPGlobal)
+        # Write to Excel with three sheets:
+        # "Excluded Companies" (merged), "Retained Companies" (merged), "Urgewald Only" (no match)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             excluded_df.to_excel(writer, sheet_name="Excluded Companies", index=False)
