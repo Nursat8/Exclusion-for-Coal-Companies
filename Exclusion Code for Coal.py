@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import openpyxl
+import time  # For runtime timing
 
 ################################################
 # 1. MAKE COLUMNS UNIQUE
@@ -128,12 +129,6 @@ def load_spglobal(file, sheet_name="Sheet1"):
             "Generation (Thermal Coal)":       ["generation (thermal coal)"],
             "Thermal Coal Mining":             ["thermal coal mining"],
             "Metallurgical Coal Mining":       ["metallurgical coal mining"],
-            "Coal Share of Revenue":           ["coal share of revenue"],
-            "Coal Share of Power Production":  ["coal share of power production"],
-            "Installed Coal Power Capacity (MW)": ["installed coal power capacity"],
-            "Coal Industry Sector":            ["coal industry sector", "industry sector"],
-            ">10MT / >5GW":                    [">10mt", ">5gw"],
-            "expansion":                       ["expansion"],
         }
         sp_data_df = fuzzy_rename_columns(sp_data_df, rename_map_sp)
         return sp_data_df
@@ -343,7 +338,7 @@ def main():
 
     # Mining Thresholds
     with st.sidebar.expander("Mining Thresholds", expanded=True):
-        # Remove the "Exclude Mining Sector?" checkbox; always apply mining filters.
+        # Removed the "Exclude Mining Sector?" checkbox (always applied)
         apply_mining_coal_rev = st.checkbox("Apply Mining: Max coal revenue threshold?", value=True)
         mining_coal_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=15.0)
         exclude_mining_prod_mt = st.checkbox("Exclude if >10MT indicated?", value=True)
@@ -357,7 +352,7 @@ def main():
 
     # Power Thresholds
     with st.sidebar.expander("Power Thresholds", expanded=True):
-        # Remove the "Exclude Power Sector?" checkbox; always apply power filters.
+        # Removed the "Exclude Power Sector?" checkbox (always applied)
         apply_power_coal_rev = st.checkbox("Apply Power: Max coal revenue threshold?", value=True)
         power_coal_rev_threshold = st.number_input("Power: Max coal revenue (%)", value=20.0)
         exclude_power_prod_percent = st.checkbox("Exclude if coal power production > threshold?", value=True)
@@ -369,7 +364,7 @@ def main():
 
     # Services Thresholds
     with st.sidebar.expander("Services Thresholds", expanded=False):
-        # Remove the "Exclude Services Sector?" checkbox; always apply services filters.
+        # Removed the "Exclude Services Sector?" checkbox (always applied)
         exclude_services_rev = st.checkbox("Exclude if services revenue > threshold?", value=False)
         services_rev_threshold = st.number_input("Services: Max coal revenue (%)", value=10.0)
 
@@ -379,6 +374,9 @@ def main():
         expansions_global = st.multiselect("Exclude if expansion text contains any of these", expansions_possible, default=[])
 
     st.sidebar.markdown("---")
+
+    # Start runtime timer
+    start_time = time.time()
 
     # Run Button
     if st.sidebar.button("Run"):
@@ -438,7 +436,7 @@ def main():
             exclude_services_rev=exclude_services_rev,
             # Global Expansions:
             expansions_global=expansions_global,
-            # Revenue threshold toggles:
+            # Revenue thresholds toggles:
             apply_mining_coal_rev=apply_mining_coal_rev,
             apply_power_coal_rev=apply_power_coal_rev
         )
@@ -472,8 +470,8 @@ def main():
         )
 
         # Separate merged dataset into Excluded and Retained
-        excluded_df = filtered_merged[filtered_merged["Excluded"]==True].copy()
-        retained_df = filtered_merged[filtered_merged["Excluded"]==False].copy()
+        excluded_df = filtered_merged[filtered_merged["Excluded"] == True].copy()
+        retained_df = filtered_merged[filtered_merged["Excluded"] == False].copy()
 
         # Define final columns
         final_cols = [
@@ -514,11 +512,15 @@ def main():
             retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
             filtered_ur_only.to_excel(writer, sheet_name="Urgewald Only", index=False)
 
+        # Stop runtime timer and show elapsed time
+        end_time = time.time()
+        elapsed = end_time - start_time
         st.subheader("Results Summary")
         st.write(f"Merged Total: {len(filtered_merged)}")
         st.write(f"Excluded (Merged): {len(excluded_df)}")
         st.write(f"Retained (Merged): {len(retained_df)}")
         st.write(f"Urgewald Only: {len(filtered_ur_only)}")
+        st.write(f"Run Time: {elapsed:.2f} seconds")
 
         st.download_button(
             label="Download Filtered Results",
