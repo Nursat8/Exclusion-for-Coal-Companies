@@ -358,20 +358,18 @@ def main():
 
     # Mining Thresholds
     with st.sidebar.expander("Mining Thresholds", expanded=True):
-        exclude_mining = st.checkbox("Turn On Exclusion Mining Sector?", value=True)
+        exclude_mining = st.checkbox("Urgewald Coal revenue (%)", value=True)
         mining_coal_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=15.0)
-        exclude_mining_prod_mt = st.checkbox("Exclude if >10MT indicated?", value=True)
+        exclude_mining_prod_mt = st.checkbox("Exclude if MT indicated?", value=True)
         mining_prod_mt_threshold = st.number_input("Mining: Max production (MT)", value=10.0)
-        exclude_mining_prod_gw = st.checkbox("Exclude if >5GW indicated?", value=True)
-        mining_prod_threshold_gw = st.number_input("Mining: Max production (GW)", value=5.0)
-        exclude_thermal_coal_mining = st.checkbox("Exclude if Thermal Coal Mining > threshold?", value=False)
-        thermal_coal_mining_threshold = st.number_input("Max allowed Thermal Coal Mining (%)", value=20.0)
-        exclude_metallurgical_coal_mining = st.checkbox("Exclude if Metallurgical Coal Mining > threshold?", value=False)
+        exclude_thermal_coal_mining = st.checkbox("S&P Thermal Coal Mining produc(%)?", value=False)
+        thermal_coal_mining_threshold = st.number_input("S&P Thermal Coal Mining revenue (%)", value=20.0)
+        exclude_metallurgical_coal_mining = st.checkbox("S&P Metallurgical Coal Mining > threshold?", value=False)
         metallurgical_coal_mining_threshold = st.number_input("Max allowed Metallurgical Coal Mining (%)", value=20.0)
 
     # Power Thresholds
     with st.sidebar.expander("Power Thresholds", expanded=True):
-        exclude_power = st.checkbox("Turn On Exclusion Power Sector?", value=True)
+        exclude_power = st.checkbox("Coal revenue (%)", value=True)
         power_coal_rev_threshold = st.number_input("Power: Max coal revenue (%)", value=20.0)
         exclude_power_prod_percent = st.checkbox("Exclude if coal power production > threshold?", value=True)
         power_prod_threshold_percent = st.number_input("Max coal power production (%)", value=20.0)
@@ -379,10 +377,11 @@ def main():
         capacity_threshold_mw = st.number_input("Max installed capacity (MW)", value=10000.0)
         exclude_generation_thermal = st.checkbox("Exclude if Generation (Thermal Coal) > threshold?", value=False)
         generation_thermal_threshold = st.number_input("Max allowed Generation (Thermal Coal) (%)", value=20.0)
+       
 
     # Services Thresholds
     with st.sidebar.expander("Services Thresholds", expanded=False):
-        exclude_services = st.checkbox("Turn On Exclusion Services Sector?", value=False)
+        exclude_services = st.checkbox("Coal revenue (%)", value=False)
         services_rev_threshold = st.number_input("Services: Max coal revenue (%)", value=10.0)
         exclude_services_rev = st.checkbox("Exclude if services revenue > threshold?", value=False)
 
