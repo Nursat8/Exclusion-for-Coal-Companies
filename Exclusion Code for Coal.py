@@ -358,7 +358,7 @@ def main():
 
     # Mining Thresholds
     with st.sidebar.expander("Mining Thresholds", expanded=True):
-        exclude_mining = st.checkbox("Exclude Mining Sector?", value=True)
+        exclude_mining = st.checkbox("Turn On Exclusion Mining Sector?", value=True)
         mining_coal_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=15.0)
         exclude_mining_prod_mt = st.checkbox("Exclude if >10MT indicated?", value=True)
         mining_prod_mt_threshold = st.number_input("Mining: Max production (MT)", value=10.0)
@@ -371,7 +371,7 @@ def main():
 
     # Power Thresholds
     with st.sidebar.expander("Power Thresholds", expanded=True):
-        exclude_power = st.checkbox("Exclude Power Sector?", value=True)
+        exclude_power = st.checkbox("Turn On Exclusion Power Sector?", value=True)
         power_coal_rev_threshold = st.number_input("Power: Max coal revenue (%)", value=20.0)
         exclude_power_prod_percent = st.checkbox("Exclude if coal power production > threshold?", value=True)
         power_prod_threshold_percent = st.number_input("Max coal power production (%)", value=20.0)
@@ -382,7 +382,7 @@ def main():
 
     # Services Thresholds
     with st.sidebar.expander("Services Thresholds", expanded=False):
-        exclude_services = st.checkbox("Exclude Services Sector?", value=False)
+        exclude_services = st.checkbox("Turn On Exclusion Services Sector?", value=False)
         services_rev_threshold = st.number_input("Services: Max coal revenue (%)", value=10.0)
         exclude_services_rev = st.checkbox("Exclude if services revenue > threshold?", value=False)
 
