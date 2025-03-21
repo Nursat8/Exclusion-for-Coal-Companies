@@ -3,14 +3,15 @@ import pandas as pd
 import numpy as np
 import io
 import openpyxl
-from collections import defaultdict, deque
+from collections import deque
 
 ################################################
 # MAKE COLUMNS UNIQUE
 ################################################
 def make_columns_unique(df):
     """
-    If there are duplicate column names, append _1, _2, etc. to avoid PyArrow errors.
+    If there are duplicate column names, append _1, _2, etc. to make them unique.
+    This avoids issues with pyarrow in st.dataframe.
     """
     seen = {}
     new_cols = []
@@ -26,28 +27,25 @@ def make_columns_unique(df):
 
 ################################################
 # REORDER COLUMNS FOR FINAL EXCEL
-# Place "Company" in col G(7), "BB Ticker" in AP(42),
-# "ISIN equity" in AQ(43), "LEI" in AT(46),
-# keep all other columns around/after them.
+# Place "Company" in col G (7th), "BB Ticker" in AP (42nd),
+# "ISIN equity" in AQ (43rd), "LEI" in AT (46th) while keeping all other columns.
 ################################################
 def reorder_for_excel(df):
-    desired_length = 46  # columns A..AT => 1..46
+    desired_length = 46  # We want columns A..AT (i.e. 46 columns)
     placeholders = ["(placeholder)"] * desired_length
 
-    # Force our 4 columns
-    placeholders[6]   = "Company"      # G => index=6 (0-based)
-    placeholders[41]  = "BB Ticker"    # AP => index=41
-    placeholders[42]  = "ISIN equity"  # AQ => index=42
-    placeholders[45]  = "LEI"          # AT => index=45
+    # Force our specific columns at these positions (0-indexed)
+    placeholders[6]   = "Company"      # Column G (7th)
+    placeholders[41]  = "BB Ticker"    # Column AP (42nd)
+    placeholders[42]  = "ISIN equity"  # Column AQ (43rd)
+    placeholders[45]  = "LEI"          # Column AT (46th)
 
     forced_positions = {6, 41, 42, 45}
-    forced_cols = {"Company","BB Ticker","ISIN equity","LEI"}
+    forced_cols = {"Company", "BB Ticker", "ISIN equity", "LEI"}
 
     all_cols = list(df.columns)
-    # remove forced columns from all_cols so we don't place them twice
     remaining_cols = [c for c in all_cols if c not in forced_cols]
 
-    # fill placeholders from left to right with remaining_cols
     idx_remain = 0
     for i in range(desired_length):
         if i not in forced_positions:
@@ -55,41 +53,29 @@ def reorder_for_excel(df):
                 placeholders[i] = remaining_cols[idx_remain]
                 idx_remain += 1
 
-    # leftover columns (beyond AT) get appended
     leftover = remaining_cols[idx_remain:]
     final_col_order = placeholders + leftover
 
-    # build the final DataFrame
-    reordered_cols = []
+    # Ensure each placeholder column exists in df (create blank ones if needed)
     for c in final_col_order:
-        if c in df.columns:
-            reordered_cols.append(c)
-        else:
-            # placeholder => create empty column
+        if c not in df.columns:
             df[c] = np.nan
-            reordered_cols.append(c)
-
-    return df[reordered_cols]
+    return df[final_col_order]
 
 ################################################
-# LOAD SPGLOBAL
+# LOAD SPGLOBAL WITH AUTO-DETECTION OF MULTI-HEADER
+#   - Row 5 (index=4) has ID columns (e.g. SP_ENTITY_NAME)
+#   - Row 6 (index=5) has additional fields (e.g. Generation (Thermal Coal))
+#   - Data starts at row 7 (index=6)
 ################################################
 def load_spglobal_autodetect(file, sheet_name):
-    """
-    Reads an SPGlobal file with:
-      - row 5 => index=4 => e.g. SP_ENTITY_NAME, SP_ENTITY_ID...
-      - row 6 => index=5 => e.g. Generation (Thermal Coal)...
-      - data from row 7 => index=6 onward
-    """
     try:
         wb = openpyxl.load_workbook(file, data_only=True)
         ws = wb[sheet_name]
         data = list(ws.values)
         full_df = pd.DataFrame(data)
-
         if len(full_df) < 6:
-            raise ValueError("SPGlobal sheet doesn't have enough rows for multi-header logic.")
-
+            raise ValueError("SPGlobal sheet does not have enough rows for multi-header logic.")
         row5 = full_df.iloc[4].fillna("")
         row6 = full_df.iloc[5].fillna("")
         final_cols = []
@@ -98,17 +84,12 @@ def load_spglobal_autodetect(file, sheet_name):
             bot_val = str(row6[col_idx]).strip()
             combined = top_val if top_val else ""
             if bot_val and bot_val.lower() not in combined.lower():
-                if combined:
-                    combined += " " + bot_val
-                else:
-                    combined = bot_val
+                combined = (combined + " " + bot_val).strip() if combined else bot_val
             final_cols.append(combined.strip())
-
         sp_df = full_df.iloc[6:].reset_index(drop=True)
         sp_df.columns = final_cols
         sp_df = make_columns_unique(sp_df)
-
-        # optionally rename columns
+        # Optionally rename columns (strip prefixes, etc.)
         rename_map_sp = {
             "SP_ESG_BUS_INVOLVE_REV_PCT Generation (Thermal Coal)": "Generation (Thermal Coal)",
             "SP_ESG_BUS_INVOLVE_REV_PCT Thermal Coal Mining":       "Thermal Coal Mining",
@@ -117,14 +98,13 @@ def load_spglobal_autodetect(file, sheet_name):
         for old_col, new_col in rename_map_sp.items():
             if old_col in sp_df.columns:
                 sp_df.rename(columns={old_col: new_col}, inplace=True)
-
         return sp_df
     except Exception as e:
-        st.error(f"Error loading SPGlobal: {e}")
+        st.error(f"Error loading SPGlobal data: {e}")
         return pd.DataFrame()
 
 ################################################
-# LOAD URGEWALD
+# LOAD URGEWALD (Single header in row 1)
 ################################################
 def load_urgewald_data(file, sheet_name="GCEL 2024"):
     try:
@@ -132,141 +112,78 @@ def load_urgewald_data(file, sheet_name="GCEL 2024"):
         ws = wb[sheet_name]
         data = list(ws.values)
         if len(data) < 1:
-            raise ValueError("Urgewald sheet is empty.")
-
+            raise ValueError("Urgewald sheet has no data.")
         full_df = pd.DataFrame(data)
         header = full_df.iloc[0].fillna("")
         ur_df = full_df.iloc[1:].reset_index(drop=True)
         ur_df.columns = header
         ur_df = make_columns_unique(ur_df)
-
         return ur_df
     except Exception as e:
         st.error(f"Error loading Urgewald file: {e}")
         return pd.DataFrame()
 
 ################################################
-# MERGE DUPLICATES (OR logic) WITHOUT DROPPING
-# We produce ONE row for each "connected component"
-# i.e. any 2 rows that share unify_name OR unify_isin OR unify_lei
-# go into the same group, and we coalesce columns.
+# UNIFY FUNCTIONS (for merging criteria)
 ################################################
-def merge_duplicates_or(df):
-    """
-    1) unify_name = unify_name(r)
-       unify_isin = unify_isin(r)
-       unify_lei  = unify_lei(r)
-    2) We'll build adjacency: rows that share a non-empty unify name or unify isin or unify lei
-       belong to the same connected component.
-    3) For each connected component, produce ONE row by coalescing columns (first non-null).
-    4) Return new DataFrame with these merged rows.
-    """
-    n = len(df)
-    if n == 0:
-        return df
-
-    # Extract unify keys
-    unify_name_list = []
-    unify_isin_list = []
-    unify_lei_list  = []
-
-    for i in range(n):
-        row = df.iloc[i]
-        unify_name_list.append( unify_name(row) )
-        unify_isin_list.append( unify_isin(row) )
-        unify_lei_list.append(  unify_lei(row)  )
-
-    # Build dicts => key => list of row indices
-    dict_name = defaultdict(list)
-    dict_isin = defaultdict(list)
-    dict_lei  = defaultdict(list)
-
-    for i in range(n):
-        if unify_name_list[i]:
-            dict_name[unify_name_list[i]].append(i)
-        if unify_isin_list[i]:
-            dict_isin[unify_isin_list[i]].append(i)
-        if unify_lei_list[i]:
-            dict_lei[unify_lei_list[i]].append(i)
-
-    # adjacency list
-    adj = [[] for _ in range(n)]
-    for i in range(n):
-        name_key = unify_name_list[i]
-        if name_key and name_key in dict_name:
-            for j in dict_name[name_key]:
-                if j != i:
-                    adj[i].append(j)
-
-        isin_key = unify_isin_list[i]
-        if isin_key and isin_key in dict_isin:
-            for j in dict_isin[isin_key]:
-                if j != i:
-                    adj[i].append(j)
-
-        lei_key = unify_lei_list[i]
-        if lei_key and lei_key in dict_lei:
-            for j in dict_lei[lei_key]:
-                if j != i:
-                    adj[i].append(j)
-
-    # find connected components using BFS/DFS
-    visited = [False]*n
-    components = []
-    for start_idx in range(n):
-        if not visited[start_idx]:
-            # BFS or DFS
-            queue = deque([start_idx])
-            visited[start_idx] = True
-            group = [start_idx]
-            while queue:
-                cur = queue.popleft()
-                for nxt in adj[cur]:
-                    if not visited[nxt]:
-                        visited[nxt] = True
-                        queue.append(nxt)
-                        group.append(nxt)
-            components.append(group)
-
-    # Coalesce columns for each component
-    merged_rows = []
-    all_columns = df.columns
-    for comp in components:
-        # gather all row data
-        comp_data = df.iloc[comp]  # subset of rows
-        # coalesce by taking the first non-null from left to right
-        merged_dict = {}
-        for c in all_columns:
-            val = None
-            for _, subrow in comp_data.iterrows():
-                if pd.notnull(subrow.get(c)) and str(subrow.get(c)).strip() != "":
-                    val = subrow.get(c)
-                    break
-            merged_dict[c] = val
-        merged_rows.append(merged_dict)
-
-    merged_df = pd.DataFrame(merged_rows, columns=all_columns)
-    return merged_df
-
 def unify_name(r):
-    sp_name = str(r.get("SP_ENTITY_NAME","")).strip().lower()
-    ur_name = str(r.get("Company","")).strip().lower()
-    # If either is non-empty, that's the unify name
-    # but for "OR" we want either one => we pick sp_name if it exists, else ur_name
+    sp_name = str(r.get("SP_ENTITY_NAME", "")).strip().lower()
+    ur_name = str(r.get("Company", "")).strip().lower()
     return sp_name if sp_name else (ur_name if ur_name else None)
 
 def unify_isin(r):
-    sp_isin = str(r.get("SP_ISIN","")).strip().lower()
-    ur_isin = str(r.get("ISIN equity","")).strip().lower()
+    sp_isin = str(r.get("SP_ISIN", "")).strip().lower()
+    ur_isin = str(r.get("ISIN equity", "")).strip().lower()
     return sp_isin if sp_isin else (ur_isin if ur_isin else None)
 
 def unify_lei(r):
-    sp_lei = str(r.get("SP_LEI","")).strip().lower()
-    ur_lei = str(r.get("LEI","")).strip().lower()
+    sp_lei = str(r.get("SP_LEI", "")).strip().lower()
+    ur_lei = str(r.get("LEI", "")).strip().lower()
     return sp_lei if sp_lei else (ur_lei if ur_lei else None)
 
 ################################################
-# FILTER COMPANIES (same thresholds etc. as before)
+# MERGE URGEWALD INTO SPGLOBAL
+#
+# For each Urgewald row, if it matches (by OR logic on name/ISIN/LEI)
+# any SPGlobal row, merge the non-empty values into that SP row.
+# Otherwise, add the Urgewald row as a new record.
+################################################
+def merge_ur_into_sp(sp_df, ur_df):
+    sp_df = sp_df.copy()
+    sp_df['Source'] = 'SP'
+    ur_df = ur_df.copy()
+    ur_df['Source'] = 'UR'
+    
+    final_list = sp_df.to_dict('records')
+    
+    for _, ur_row in ur_df.iterrows():
+        ur_key_name = unify_name(ur_row)
+        ur_key_isin = unify_isin(ur_row)
+        ur_key_lei  = unify_lei(ur_row)
+        merged = False
+        for rec in final_list:
+            sp_key_name = unify_name(rec)
+            sp_key_isin = unify_isin(rec)
+            sp_key_lei  = unify_lei(rec)
+            if (ur_key_name and sp_key_name and ur_key_name == sp_key_name) or \
+               (ur_key_isin and sp_key_isin and ur_key_isin == sp_key_isin) or \
+               (ur_key_lei and sp_key_lei and ur_key_lei == sp_key_lei):
+                # For each column, if the SP record is empty, fill it with the UR value.
+                for k, v in ur_row.items():
+                    if (k not in rec) or (rec[k] is None) or (str(rec[k]).strip() == ""):
+                        rec[k] = v
+                rec['Source'] = rec.get('Source', '') + ",UR"
+                merged = True
+                break
+        if not merged:
+            final_list.append(ur_row.to_dict())
+    
+    merged_df = pd.DataFrame(final_list)
+    merged_df.drop(columns=['Source'], inplace=True, errors='ignore')
+    return merged_df
+
+################################################
+# FILTER COMPANIES (Thresholds/Exclusion Logic)
 ################################################
 def filter_companies(
     df,
@@ -293,7 +210,7 @@ def filter_companies(
     exclude_thermal_coal_mining,
     metallurgical_coal_mining_threshold,
     exclude_metallurgical_coal_mining,
-    # expansions
+    # Global expansion keywords
     expansions_global
 ):
     exclusion_flags = []
@@ -301,21 +218,19 @@ def filter_companies(
 
     for idx, row in df.iterrows():
         reasons = []
-
-        sector_val = str(row.get("Coal Industry Sector","")).lower()
+        sector_val = str(row.get("Coal Industry Sector", "")).lower()
         is_mining   = ("mining" in sector_val)
         is_power    = ("power" in sector_val) or ("generation" in sector_val)
         is_services = ("service" in sector_val)
+        expansion_text = str(row.get("expansion", "")).lower()
 
-        expansion_text = str(row.get("expansion","")).lower()
-
-        # numeric columns
+        # Numeric columns
         coal_rev = pd.to_numeric(row.get("Coal Share of Revenue", 0), errors="coerce") or 0.0
         coal_power_share = pd.to_numeric(row.get("Coal Share of Power Production", 0), errors="coerce") or 0.0
         installed_cap = pd.to_numeric(row.get("Installed Coal Power Capacity (MW)", 0), errors="coerce") or 0.0
         annual_coal_prod = pd.to_numeric(row.get("Annual Coal Production (in million metric tons)", 0), errors="coerce") or 0.0
 
-        # 3 columns
+        # Additional coal involvement columns
         gen_thermal_val = pd.to_numeric(row.get("Generation (Thermal Coal)", 0), errors="coerce") or 0.0
         therm_mining_val = pd.to_numeric(row.get("Thermal Coal Mining", 0), errors="coerce") or 0.0
         met_coal_val = pd.to_numeric(row.get("Metallurgical Coal Mining", 0), errors="coerce") or 0.0
@@ -323,41 +238,27 @@ def filter_companies(
         # MINING
         if is_mining and exclude_mining:
             if exclude_mining_prod_mt and (annual_coal_prod > mining_prod_mt_threshold):
-                reasons.append(
-                    f"Annual coal production {annual_coal_prod:.2f}MT > {mining_prod_mt_threshold}MT"
-                )
-
+                reasons.append(f"Annual coal production {annual_coal_prod:.2f}MT > {mining_prod_mt_threshold}MT")
         # POWER
         if is_power and exclude_power:
-            if exclude_power_rev and (coal_rev*100) > power_rev_threshold:
-                reasons.append(
-                    f"Coal share of revenue {coal_rev*100:.2f}% > {power_rev_threshold}% (Power)"
-                )
-            if exclude_power_prod_percent and (coal_power_share*100) > power_prod_threshold_percent:
-                reasons.append(
-                    f"Coal share of power production {coal_power_share*100:.2f}% > {power_prod_threshold_percent}%"
-                )
+            if exclude_power_rev and (coal_rev * 100) > power_rev_threshold:
+                reasons.append(f"Coal share of revenue {coal_rev*100:.2f}% > {power_rev_threshold}% (Power)")
+            if exclude_power_prod_percent and (coal_power_share * 100) > power_prod_threshold_percent:
+                reasons.append(f"Coal share of power production {coal_power_share*100:.2f}% > {power_prod_threshold_percent}%")
             if exclude_capacity_mw and (installed_cap > capacity_threshold_mw):
-                reasons.append(
-                    f"Installed coal power capacity {installed_cap:.2f}MW > {capacity_threshold_mw}MW"
-                )
-
+                reasons.append(f"Installed coal power capacity {installed_cap:.2f}MW > {capacity_threshold_mw}MW")
         # SERVICES
         if is_services and exclude_services:
-            if exclude_services_rev and (coal_rev*100) > services_rev_threshold:
-                reasons.append(
-                    f"Coal share of revenue {coal_rev*100:.2f}% > {services_rev_threshold}% (Services)"
-                )
-
+            if exclude_services_rev and (coal_rev * 100) > services_rev_threshold:
+                reasons.append(f"Coal share of revenue {coal_rev*100:.2f}% > {services_rev_threshold}% (Services)")
         # Additional thresholds
-        if exclude_generation_thermal and (gen_thermal_val*100) > generation_thermal_threshold:
+        if exclude_generation_thermal and (gen_thermal_val * 100) > generation_thermal_threshold:
             reasons.append(f"Generation (Thermal Coal) {gen_thermal_val*100:.2f}% > {generation_thermal_threshold}%")
-        if exclude_thermal_coal_mining and (therm_mining_val*100) > thermal_coal_mining_threshold:
+        if exclude_thermal_coal_mining and (therm_mining_val * 100) > thermal_coal_mining_threshold:
             reasons.append(f"Thermal Coal Mining {therm_mining_val*100:.2f}% > {thermal_coal_mining_threshold}%")
-        if exclude_metallurgical_coal_mining and (met_coal_val*100) > metallurgical_coal_mining_threshold:
+        if exclude_metallurgical_coal_mining and (met_coal_val * 100) > metallurgical_coal_mining_threshold:
             reasons.append(f"Metallurgical Coal Mining {met_coal_val*100:.2f}% > {metallurgical_coal_mining_threshold}%")
-
-        # expansions
+        # Expansions
         if expansions_global:
             for kw in expansions_global:
                 if kw.lower() in expansion_text:
@@ -366,7 +267,6 @@ def filter_companies(
 
         exclusion_flags.append(bool(reasons))
         exclusion_reasons.append("; ".join(reasons) if reasons else "")
-
     df["Excluded"] = exclusion_flags
     df["Exclusion Reasons"] = exclusion_reasons
     return df
@@ -375,17 +275,17 @@ def filter_companies(
 # MAIN STREAMLIT APP
 ################################################
 def main():
-    st.set_page_config(page_title="Coal Exclusion Filter (Merged, No-Duplicate Rows)", layout="wide")
-    st.title("Coal Exclusion Filter: Merge SP & Urgewald by OR Logic, Keep All Features")
+    st.set_page_config(page_title="Coal Exclusion Filter (Merged SP & Urgewald)", layout="wide")
+    st.title("Coal Exclusion Filter: Merge SPGlobal & Urgewald (OR Logic) with All Features")
 
-    # FILES
+    # FILE INPUTS
     st.sidebar.header("File & Sheet Settings")
     sp_sheet = st.sidebar.text_input("SPGlobal Sheet Name", value="Sheet1")
     ur_sheet = st.sidebar.text_input("Urgewald Sheet Name", value="GCEL 2024")
     sp_file = st.sidebar.file_uploader("Upload SPGlobal Excel file", type=["xlsx"])
     ur_file = st.sidebar.file_uploader("Upload Urgewald Excel file", type=["xlsx"])
 
-    # THRESHOLD TOGGLES
+    # THRESHOLD TOGGLES (same as before)
     st.sidebar.header("Mining Thresholds")
     exclude_mining = st.sidebar.checkbox("Exclude Mining", value=True)
     mining_prod_mt_threshold = st.sidebar.number_input("Mining: Max production (MT)", value=10.0)
@@ -405,23 +305,16 @@ def main():
     services_rev_threshold = st.sidebar.number_input("Services: Max coal revenue (%)", value=10.0)
     exclude_services_rev = st.sidebar.checkbox("Exclude if services rev threshold exceeded?", value=False)
 
-    # expansions
     st.sidebar.header("Global Expansion Exclusion")
     expansions_possible = ["mining", "infrastructure", "power", "subsidiary of a coal developer"]
-    expansions_global = st.sidebar.multiselect(
-        "Exclude if expansions text contains any of these",
-        expansions_possible,
-        default=[]
-    )
+    expansions_global = st.sidebar.multiselect("Exclude if expansion text contains any of these", expansions_possible, default=[])
 
     st.sidebar.header("Business Involvement Thresholds (%)")
-    exclude_generation_thermal = st.sidebar.checkbox("Exclude if Generation (Thermal Coal) > threshold?", value=False)
+    exclude_generation_thermal = st.sidebar.checkbox("Exclude if 'Generation (Thermal Coal)' > threshold?", value=False)
     generation_thermal_threshold = st.sidebar.number_input("Max allowed Generation (Thermal Coal) (%)", value=20.0)
-
-    exclude_thermal_coal_mining = st.sidebar.checkbox("Exclude if Thermal Coal Mining > threshold?", value=False)
+    exclude_thermal_coal_mining = st.sidebar.checkbox("Exclude if 'Thermal Coal Mining' > threshold?", value=False)
     thermal_coal_mining_threshold = st.sidebar.number_input("Max allowed Thermal Coal Mining (%)", value=20.0)
-
-    exclude_metallurgical_coal_mining = st.sidebar.checkbox("Exclude if Metallurgical Coal Mining > threshold?", value=False)
+    exclude_metallurgical_coal_mining = st.sidebar.checkbox("Exclude if 'Metallurgical Coal Mining' > threshold?", value=False)
     metallurgical_coal_mining_threshold = st.sidebar.number_input("Max allowed Metallurgical Coal Mining (%)", value=20.0)
 
     if st.sidebar.button("Run"):
@@ -429,34 +322,27 @@ def main():
             st.warning("Please provide both SPGlobal and Urgewald files.")
             return
 
-        # 1) Load SPGlobal
+        # 1) Load SPGlobal and Urgewald data
         sp_df = load_spglobal_autodetect(sp_file, sp_sheet)
         if sp_df is None or sp_df.empty:
-            st.warning("SPGlobal data is empty or couldn't be loaded.")
+            st.warning("SPGlobal data is empty or could not be loaded.")
             return
-        st.write("SP columns =>", sp_df.columns.tolist())
+        st.write("SPGlobal columns:", sp_df.columns.tolist())
         st.dataframe(sp_df.head(5))
 
-        # 2) Load Urgewald
         ur_df = load_urgewald_data(ur_file, ur_sheet)
         if ur_df is None or ur_df.empty:
-            st.warning("Urgewald data is empty or couldn't be loaded.")
+            st.warning("Urgewald data is empty or could not be loaded.")
             return
-        st.write("Urgewald columns =>", ur_df.columns.tolist())
+        st.write("Urgewald columns:", ur_df.columns.tolist())
         st.dataframe(ur_df.head(5))
 
-        # 3) Concatenate (ALL rows from both data sets)
-        combined = pd.concat([sp_df, ur_df], ignore_index=True)
-        st.write(f"Combined shape => {combined.shape}")
-        st.write("Combined columns =>", combined.columns.tolist())
-
-        # 4) Merge duplicates (OR) => single row for each matched company
-        merged = merge_duplicates_or(combined.copy())
-        st.write(f"After merging duplicates => {merged.shape}")
-        st.write("Merged columns =>", merged.columns.tolist())
+        # 2) Merge Urgewald into SPGlobal (only merge when keys match)
+        merged = merge_ur_into_sp(sp_df, ur_df)
+        st.write(f"After merging: {merged.shape[0]} companies")
         st.dataframe(merged.head(5))
 
-        # 5) Filter
+        # 3) Apply filtering (exclusion logic based on thresholds)
         filtered = filter_companies(
             df=merged,
             mining_prod_mt_threshold=mining_prod_mt_threshold,
@@ -481,21 +367,18 @@ def main():
             expansions_global=expansions_global
         )
 
-        # 6) Separate Excluded/Retained/NoData
+        # 4) Separate into Excluded, Retained, and optionally No Data (if "Coal Industry Sector" is blank)
         excluded_df = filtered[filtered["Excluded"] == True].copy()
         retained_df = filtered[filtered["Excluded"] == False].copy()
-
         if "Coal Industry Sector" in filtered.columns:
             no_data_df = filtered[filtered["Coal Industry Sector"].isna()].copy()
         else:
             no_data_df = pd.DataFrame()
 
-        # 7) Final columns
-        # Add or remove any columns you want to appear in the final Excel
-        # We'll keep the same as before, for demonstration
+        # 5) Ensure final columns exist
         final_cols = [
-            "SP_ENTITY_NAME","SP_ENTITY_ID","SP_COMPANY_ID","SP_ISIN","SP_LEI",
-            "Company","ISIN equity","LEI","BB Ticker",
+            "SP_ENTITY_NAME", "SP_ENTITY_ID", "SP_COMPANY_ID", "SP_ISIN", "SP_LEI",
+            "Company", "ISIN equity", "LEI", "BB Ticker",
             "Coal Industry Sector",
             ">10MT / >5GW",
             "Installed Coal Power Capacity (MW)",
@@ -506,39 +389,34 @@ def main():
             "Generation (Thermal Coal)",
             "Thermal Coal Mining",
             "Metallurgical Coal Mining",
-            "Excluded",
-            "Exclusion Reasons"
+            "Excluded", "Exclusion Reasons"
         ]
-        def ensure_cols(df_):
+        def ensure_cols_exist(df_):
             for c in final_cols:
                 if c not in df_.columns:
                     df_[c] = np.nan
             return df_
-
-        excluded_df = ensure_cols(excluded_df)
-        retained_df = ensure_cols(retained_df)
-        no_data_df  = ensure_cols(no_data_df)
-
-        excluded_df = excluded_df[final_cols]
-        retained_df = retained_df[final_cols]
+        excluded_df = ensure_cols_exist(excluded_df)[final_cols]
+        retained_df = ensure_cols_exist(retained_df)[final_cols]
         if not no_data_df.empty:
-            no_data_df = no_data_df[final_cols]
+            no_data_df = ensure_cols_exist(no_data_df)[final_cols]
 
-        # 8) Reorder so "Company" => G, "BB Ticker" => AP, "ISIN equity" => AQ, "LEI" => AT
+        # 6) Reorder columns so that "Company" is at G, "BB Ticker" at AP, "ISIN equity" at AQ, "LEI" at AT
         excluded_df = reorder_for_excel(excluded_df)
         retained_df = reorder_for_excel(retained_df)
-        no_data_df  = reorder_for_excel(no_data_df)
+        if not no_data_df.empty:
+            no_data_df = reorder_for_excel(no_data_df)
 
-        # 9) Output Excel
+        # 7) Write to Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            excluded_df.to_excel(writer, "Excluded Companies", index=False)
-            retained_df.to_excel(writer, "Retained Companies", index=False)
+            excluded_df.to_excel(writer, sheet_name="Excluded Companies", index=False)
+            retained_df.to_excel(writer, sheet_name="Retained Companies", index=False)
             if not no_data_df.empty:
-                no_data_df.to_excel(writer, "No Data Companies", index=False)
+                no_data_df.to_excel(writer, sheet_name="No Data Companies", index=False)
 
         st.subheader("Statistics")
-        st.write(f"Total merged: {len(filtered)}")
+        st.write(f"Total merged companies: {len(filtered)}")
         st.write(f"Excluded: {len(excluded_df)}")
         st.write(f"Retained: {len(retained_df)}")
         if not no_data_df.empty:
