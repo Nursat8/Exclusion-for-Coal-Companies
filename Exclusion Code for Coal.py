@@ -345,7 +345,7 @@ def filter_companies(
 ################################################
 def main():
     st.set_page_config(page_title="Coal Exclusion Filter (Fuzzy Columns)", layout="wide")
-    st.title("Coal Exclusion Filter with Dynamic Column Detection & Custom Production Thresholds")
+    st.title("Coal Exclusion Filter")
 
     # File & Sheet Settings
     st.sidebar.header("File & Sheet Settings")
@@ -536,7 +536,7 @@ def main():
         st.download_button(
             label="Download Filtered Results",
             data=output.getvalue(),
-            file_name="filtered_results.xlsx",
+            file_name="Coal Companies Exclusion.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
