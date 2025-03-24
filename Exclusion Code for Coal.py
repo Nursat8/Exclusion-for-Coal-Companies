@@ -45,53 +45,19 @@ def fuzzy_rename_columns(df, rename_map):
     return df
 
 ################################################
-# 3. REORDER COLUMNS FOR FINAL EXCEL
+# 3. FINAL COLUMN ORDER FUNCTION
 ################################################
-def reorder_for_excel(df):
+def reorder_for_excel_custom(df, desired_order):
     """
-    Force specific columns into fixed positions:
-      - "Company" in column G (7th)
-      - "BB Ticker" in column AP (42nd)
-      - "ISIN equity" in column AQ (43rd)
-      - "LEI" in column AT (46th)
-    Then move "Excluded" and "Exclusion Reasons" to the end.
+    Ensure that the DataFrame contains the columns in desired_order.
+    For any column missing, add it as an empty column.
+    Then return the DataFrame with columns in that order.
     """
-    desired_length = 46  # positions for columns A..AT
-    placeholders = ["(placeholder)"] * desired_length
-
-    # Fixed positions (0-indexed)
-    placeholders[6] = "Company"       # Column G (7th)
-    placeholders[41] = "BB Ticker"     # Column AP (42nd)
-    placeholders[42] = "ISIN equity"   # Column AQ (43rd)
-    placeholders[45] = "LEI"           # Column AT (46th)
-
-    forced_positions = {6, 41, 42, 45}
-    forced_cols = {"Company", "BB Ticker", "ISIN equity", "LEI"}
-    all_cols = list(df.columns)
-    remaining_cols = [c for c in all_cols if c not in forced_cols]
-
-    idx = 0
-    for i in range(desired_length):
-        if i not in forced_positions and idx < len(remaining_cols):
-            placeholders[i] = remaining_cols[idx]
-            idx += 1
-
-    leftover = remaining_cols[idx:]
-    final_order = placeholders + leftover
-
-    for c in final_order:
-        if c not in df.columns and c == "(placeholder)":
-            df[c] = np.nan
-
-    df = df[final_order]
-    df = df.loc[:, ~((df.columns == "(placeholder)") & (df.isna().all()))]
-    # Move "Excluded" and "Exclusion Reasons" to the end
-    cols = list(df.columns)
-    for c in ["Excluded", "Exclusion Reasons"]:
-        if c in cols:
-            cols.remove(c)
-            cols.append(c)
-    return df[cols]
+    df = df.copy()
+    for col in desired_order:
+        if col not in df.columns:
+            df[col] = ""
+    return df[desired_order]
 
 ################################################
 # 4. LOAD SPGLOBAL (AUTO-DETECT MULTI-HEADER)
@@ -151,10 +117,10 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
             raise ValueError("Urgewald file is empty.")
         full_df = pd.DataFrame(data)
         header = full_df.iloc[0].fillna("")
-        # Filter header to remove any column equal to "parent company"
+        # Filter header: remove any column equal to "parent company"
         filtered_header = [col for col in header if str(col).strip().lower() != "parent company"]
         ur_df = full_df.iloc[1:].reset_index(drop=True)
-        # Keep only columns whose header in the first row is not "parent company"
+        # Keep only columns whose header is not "parent company"
         ur_df = ur_df.loc[:, header.str.strip().str.lower() != "parent company"]
         ur_df.columns = filtered_header
         ur_df = make_columns_unique(ur_df)
@@ -328,33 +294,6 @@ def filter_companies(df,
     return df
 
 ################################################
-# Helper functions for output column adjustments
-################################################
-def rename_ur_columns(df):
-    """Rename UR columns with U_ prefix for identification fields."""
-    mapping = {"Company": "U_Company", "BB Ticker": "U_BB Ticker",
-               "ISIN equity": "U_ISIN equity", "LEI": "U_LEI"}
-    df = df.copy()
-    df.rename(columns=mapping, inplace=True)
-    return df
-
-def add_empty_ur_columns(df):
-    """For SPGlobal records, add empty UR columns if missing."""
-    df = df.copy()
-    for col in ["U_Company", "U_BB Ticker", "U_ISIN equity", "U_LEI"]:
-        if col not in df.columns:
-            df[col] = ""
-    return df
-
-def add_empty_sp_columns(df):
-    """For UR records, add empty SPGlobal columns if missing."""
-    df = df.copy()
-    for col in ["SP_ENTITY_NAME", "SP_ENTITY_ID", "SP_COMPANY_ID", "SP_ISIN", "SP_LEI"]:
-        if col not in df.columns:
-            df[col] = ""
-    return df
-
-################################################
 # 9. MAIN STREAMLIT APP
 ################################################
 def main():
@@ -429,7 +368,6 @@ def main():
                 df["norm_name"] = df["Company"].astype(str).apply(normalize_key)
                 df["norm_isin"] = df["ISIN equity"].astype(str).apply(normalize_key)
                 df["norm_lei"] = df["LEI"].astype(str).apply(normalize_key)
-            # Ensure BB Ticker exists
             if "BB Ticker" not in df.columns:
                 df["BB Ticker"] = ""
             df["norm_bbticker"] = df["BB Ticker"].astype(str).apply(normalize_key)
@@ -453,7 +391,7 @@ def main():
         ur_only_df = ur_df[ur_df["Merged"] == False].copy()
         if "Merged" in sp_only_df.columns:
             sp_only_df.drop(columns=["Merged"], inplace=True)
-        # For S&P Only, restrict to records with nonzero Thermal Coal Mining or Generation (Thermal Coal)
+        # For S&P Only, further restrict to records with nonzero Thermal Coal Mining or Generation (Thermal Coal)
         sp_only_df = sp_only_df[
             (pd.to_numeric(sp_only_df["Thermal Coal Mining"], errors='coerce').fillna(0) > 0) |
             (pd.to_numeric(sp_only_df["Generation (Thermal Coal)"], errors='coerce').fillna(0) > 0)
@@ -478,7 +416,6 @@ def main():
             "exclude_services_rev": exclude_services_rev,
             "expansions_global": expansions_global
         }
-        # Apply threshold filtering to unmatched sets
         def compute_exclusion(row, **params):
             reasons = []
             sector = str(row.get("Coal Industry Sector", "")).lower()
@@ -535,7 +472,6 @@ def main():
         else:
             sp_only_df["Excluded"] = filtered_sp_only["Excluded"]
             sp_only_df["Exclusion Reasons"] = filtered_sp_only["Exclusion Reasons"]
-
         filtered_ur_only = ur_only_df.apply(lambda row: compute_exclusion(row, **params), axis=1)
         if filtered_ur_only.empty:
             ur_only_df["Excluded"] = False
@@ -544,12 +480,9 @@ def main():
             ur_only_df["Excluded"] = filtered_ur_only["Excluded"]
             ur_only_df["Exclusion Reasons"] = filtered_ur_only["Exclusion Reasons"]
 
-
-        # For output, only include retained companies (not excluded) from the unmatched sets.
         sp_retained = sp_only_df[sp_only_df["Excluded"] == False].copy()
         ur_retained = ur_only_df[ur_only_df["Excluded"] == False].copy()
 
-        # Also, produce the Excluded Companies sheet from the full datasets:
         full_filtered_sp = sp_df.apply(lambda row: compute_exclusion(row, **params), axis=1)
         sp_df["Excluded"] = full_filtered_sp["Excluded"]
         sp_df["Exclusion Reasons"] = full_filtered_sp["Exclusion Reasons"]
@@ -560,7 +493,7 @@ def main():
         excluded_ur = ur_df[ur_df["Excluded"] == True].copy()
         excluded_final = pd.concat([excluded_sp, excluded_ur], ignore_index=True)
 
-        # --- Adjust output columns ---
+        # Adjust output columns as specified
         output_cols = ["SP_ENTITY_NAME", "SP_ENTITY_ID", "SP_COMPANY_ID", "SP_ISIN", "SP_LEI",
                        "Coal Industry Sector", "U_Company", ">10MT / >5GW",
                        "Installed Coal Power Capacity (MW)", "Coal Share of Power Production",
@@ -568,7 +501,6 @@ def main():
                        "Thermal Coal Mining", "U_BB Ticker", "U_ISIN equity", "U_LEI",
                        "Excluded", "Exclusion Reasons"]
 
-        # For S&P Only, add empty UR columns if missing
         def add_empty_ur_cols(df):
             df = df.copy()
             for col in ["U_Company", "U_BB Ticker", "U_ISIN equity", "U_LEI"]:
@@ -576,9 +508,6 @@ def main():
                     df[col] = ""
             return df
 
-        sp_retained = add_empty_ur_cols(sp_retained)
-
-        # For UR Only, rename columns with U_ prefix and add empty SP columns.
         def rename_ur_columns(df):
             df = df.copy()
             mapping = {"Company": "U_Company", "BB Ticker": "U_BB Ticker",
@@ -593,10 +522,9 @@ def main():
                     df[col] = ""
             return df
 
+        sp_retained = add_empty_ur_cols(sp_retained)
         ur_retained = rename_ur_columns(ur_retained)
         ur_retained = add_empty_sp_cols(ur_retained)
-
-        # For Excluded Companies, for UR records rename identification columns and add empty SP columns.
         excluded_sp = excluded_final[excluded_final["SP_ENTITY_NAME"].notna()].copy()
         excluded_ur = excluded_final[excluded_final["SP_ENTITY_NAME"].isna()].copy()
         if not excluded_ur.empty:
@@ -609,9 +537,9 @@ def main():
                     df[col] = ""
             df = df[output_cols]
 
-        sp_retained = reorder_for_excel(sp_retained)
-        ur_retained = reorder_for_excel(ur_retained)
-        excluded_final = reorder_for_excel(excluded_final)
+        sp_retained = reorder_for_excel_custom(sp_retained, output_cols)
+        ur_retained = reorder_for_excel_custom(ur_retained, output_cols)
+        excluded_final = reorder_for_excel_custom(excluded_final, output_cols)
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -631,6 +559,14 @@ def main():
             file_name="Coal_Companies_Output.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+def reorder_for_excel_custom(df, desired_order):
+    """Ensure the DataFrame has columns in the desired order (adding missing ones as empty)."""
+    df = df.copy()
+    for col in desired_order:
+        if col not in df.columns:
+            df[col] = ""
+    return df[desired_order]
 
 if __name__ == "__main__":
     main()
