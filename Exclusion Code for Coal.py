@@ -49,19 +49,24 @@ def fuzzy_rename_columns(df, rename_map):
 
 ################################################
 # 3. REORDER COLUMNS FOR FINAL EXCEL
-# Force "Company" in column G, "BB Ticker" in AP,
-# "ISIN equity" in AQ, "LEI" in AT, and then move
-# "Excluded" and "Exclusion Reasons" to the end.
 ################################################
 def reorder_for_excel(df):
+    """
+    Force specific columns to fixed positions in the final output:
+      - "Company" in column G (7th),
+      - "BB Ticker" in column AP (42nd),
+      - "ISIN equity" in column AQ (43rd),
+      - "LEI" in column AT (46th).
+    Then, move "Excluded" and "Exclusion Reasons" to the end.
+    """
     desired_length = 46  # Force positions for columns A..AT (1..46)
     placeholders = ["(placeholder)"] * desired_length
 
     # Fixed positions (0-indexed)
-    placeholders[6]   = "Company"      # Column G (7th)
-    placeholders[41]  = "BB Ticker"    # Column AP (42nd)
-    placeholders[42]  = "ISIN equity"  # Column AQ (43rd)
-    placeholders[45]  = "LEI"          # Column AT (46th)
+    placeholders[6] = "Company"       # Column G
+    placeholders[41] = "BB Ticker"     # Column AP
+    placeholders[42] = "ISIN equity"   # Column AQ
+    placeholders[45] = "LEI"           # Column AT
 
     forced_positions = {6, 41, 42, 45}
     forced_cols = {"Company", "BB Ticker", "ISIN equity", "LEI"}
@@ -121,20 +126,20 @@ def load_spglobal(file, sheet_name="Sheet1"):
         sp_data_df = make_columns_unique(sp_data_df)
 
         rename_map_sp = {
-            "SP_ENTITY_NAME":  ["sp entity name", "s&p entity name", "entity name"],
-            "SP_ENTITY_ID":    ["sp entity id", "entity id"],
-            "SP_COMPANY_ID":   ["sp company id", "company id"],
-            "SP_ISIN":         ["sp isin", "isin code"],
-            "SP_LEI":          ["sp lei", "lei code"],
-            "Generation (Thermal Coal)":       ["generation (thermal coal)"],
-            "Thermal Coal Mining":             ["thermal coal mining"],
-            "Metallurgical Coal Mining":       ["metallurgical coal mining"],
-            "Coal Share of Revenue":           ["coal share of revenue"],
-            "Coal Share of Power Production":  ["coal share of power production"],
+            "SP_ENTITY_NAME": ["sp entity name", "s&p entity name", "entity name"],
+            "SP_ENTITY_ID": ["sp entity id", "entity id"],
+            "SP_COMPANY_ID": ["sp company id", "company id"],
+            "SP_ISIN": ["sp isin", "isin code"],
+            "SP_LEI": ["sp lei", "lei code"],
+            "Generation (Thermal Coal)": ["generation (thermal coal)"],
+            "Thermal Coal Mining": ["thermal coal mining"],
+            "Metallurgical Coal Mining": ["metallurgical coal mining"],
+            "Coal Share of Revenue": ["coal share of revenue"],
+            "Coal Share of Power Production": ["coal share of power production"],
             "Installed Coal Power Capacity (MW)": ["installed coal power capacity"],
-            "Coal Industry Sector":            ["coal industry sector", "industry sector"],
-            ">10MT / >5GW":                    [">10mt", ">5gw"],
-            "expansion":                       ["expansion"],
+            "Coal Industry Sector": ["coal industry sector", "industry sector"],
+            ">10MT / >5GW": [">10mt", ">5gw"],
+            "expansion": ["expansion"],
         }
         sp_data_df = fuzzy_rename_columns(sp_data_df, rename_map_sp)
         return sp_data_df
@@ -159,19 +164,19 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
         ur_data_df = make_columns_unique(ur_data_df)
 
         rename_map_ur = {
-            "Company":        ["company", "issuer name"],
-            "ISIN equity":    ["isin equity", "isin(eq)", "isin eq"],
-            "LEI":            ["lei", "lei code"],
-            "BB Ticker":      ["bb ticker", "bloomberg ticker"],
+            "Company": ["company", "issuer name"],
+            "ISIN equity": ["isin equity", "isin(eq)", "isin eq"],
+            "LEI": ["lei", "lei code"],
+            "BB Ticker": ["bb ticker", "bloomberg ticker"],
             "Coal Industry Sector": ["coal industry sector", "industry sector"],
-            ">10MT / >5GW":   [">10mt", ">5gw"],
-            "expansion":      ["expansion", "expansion text"],
+            ">10MT / >5GW": [">10mt", ">5gw"],
+            "expansion": ["expansion", "expansion text"],
             "Coal Share of Power Production": ["coal share of power production"],
-            "Coal Share of Revenue":          ["coal share of revenue"],
+            "Coal Share of Revenue": ["coal share of revenue"],
             "Installed Coal Power Capacity (MW)": ["installed coal power capacity"],
-            "Generation (Thermal Coal)":     ["generation (thermal coal)"],
-            "Thermal Coal Mining":           ["thermal coal mining"],
-            "Metallurgical Coal Mining":     ["metallurgical coal mining"],
+            "Generation (Thermal Coal)": ["generation (thermal coal)"],
+            "Thermal Coal Mining": ["thermal coal mining"],
+            "Metallurgical Coal Mining": ["metallurgical coal mining"],
         }
         ur_data_df = fuzzy_rename_columns(ur_data_df, rename_map_ur)
         return ur_data_df
@@ -279,7 +284,7 @@ def filter_companies(
     exclude_services_rev,
     # Global expansions:
     expansions_global,
-    # Revenue threshold toggles (for each sector):
+    # Revenue threshold toggles:
     exclude_mining_revenue,
     exclude_power_revenue
 ):
@@ -287,15 +292,12 @@ def filter_companies(
     exclusion_reasons = []
     for idx, row in df.iterrows():
         reasons = []
-        # For revenue and capacity checks, these are applied based on values.
-        # For S&P identifier thresholds, apply them universally (ignoring sector).
-        
-        # Numeric columns (coal revenue stored as decimal, so multiply by 100)
+        # For revenue and capacity checks, we apply these based on numeric values.
+        # S&P identifier checks are applied universally.
         coal_rev = pd.to_numeric(row.get("Coal Share of Revenue", 0), errors="coerce") or 0.0
         coal_power_share = pd.to_numeric(row.get("Coal Share of Power Production", 0), errors="coerce") or 0.0
         installed_cap = pd.to_numeric(row.get("Installed Coal Power Capacity (MW)", 0), errors="coerce") or 0.0
 
-        # Business involvement columns (percentages; no multiplication)
         gen_thermal_val = pd.to_numeric(row.get("Generation (Thermal Coal)", 0), errors="coerce") or 0.0
         therm_mining_val = pd.to_numeric(row.get("Thermal Coal Mining", 0), errors="coerce") or 0.0
         met_coal_val = pd.to_numeric(row.get("Metallurgical Coal Mining", 0), errors="coerce") or 0.0
@@ -360,12 +362,10 @@ def main():
 
     # Mining Thresholds
     with st.sidebar.expander("Mining Thresholds", expanded=True):
-        # Revenue threshold for mining:
         exclude_mining_revenue = st.checkbox("Exclude if coal revenue > threshold? (Mining)", value=True)
         mining_coal_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=15.0)
         exclude_mining_prod_mt = st.checkbox("Exclude if >10MT indicated?", value=True)
         mining_prod_mt_threshold = st.number_input("Mining: Max production (MT)", value=10.0)
-        # Remove >5GW check per request.
         exclude_thermal_coal_mining = st.checkbox("Exclude if Thermal Coal Mining > threshold?", value=False)
         thermal_coal_mining_threshold = st.number_input("Max allowed Thermal Coal Mining (%)", value=20.0)
         exclude_metallurgical_coal_mining = st.checkbox("Exclude if Metallurgical Coal Mining > threshold?", value=False)
@@ -373,7 +373,6 @@ def main():
 
     # Power Thresholds
     with st.sidebar.expander("Power Thresholds", expanded=True):
-        # Revenue threshold for power:
         exclude_power_revenue = st.checkbox("Exclude if coal revenue > threshold? (Power)", value=True)
         power_coal_rev_threshold = st.number_input("Power: Max coal revenue (%)", value=20.0)
         exclude_power_prod_percent = st.checkbox("Exclude if coal power production > threshold?", value=True)
@@ -418,7 +417,7 @@ def main():
             return
         ur_df = make_columns_unique(ur_df)
 
-        # Merge UR into SP (optimized with dictionaries)
+        # Merge UR into SP (using optimized dictionary lookup)
         merged_df, ur_only_df = merge_ur_into_sp(sp_df, ur_df)
 
         # Apply filtering on merged and UR-only sets
@@ -483,16 +482,16 @@ def main():
         excluded_df = filtered_merged[filtered_merged["Excluded"] == True].copy()
         retained_df = filtered_merged[filtered_merged["Excluded"] == False].copy()
 
-        # Create additional sheet for S&P Only:
-        # These are SPGlobal records in merged_df with Merged==False and that have
-        # at least one non-empty value in "Thermal Coal Mining", "Metallurgical Coal Mining", 
-        # or "Generation (Thermal Coal)".
+        # --- Create additional sheet for S&P Only:
+        # Select only those SPGlobal records in merged_df with Merged==False
+        # that have non-zero values (numeric > 0) in at least one of the three fields:
+        # "Thermal Coal Mining", "Metallurgical Coal Mining", "Generation (Thermal Coal)".
         sp_only_df = merged_df[
             (merged_df["Merged"] == False) &
             (
-                (merged_df["Thermal Coal Mining"].notna() & (merged_df["Thermal Coal Mining"] != "")) |
-                (merged_df["Metallurgical Coal Mining"].notna() & (merged_df["Metallurgical Coal Mining"] != "")) |
-                (merged_df["Generation (Thermal Coal)"].notna() & (merged_df["Generation (Thermal Coal)"] != ""))
+                (pd.to_numeric(merged_df["Thermal Coal Mining"], errors='coerce').fillna(0) > 0) |
+                (pd.to_numeric(merged_df["Metallurgical Coal Mining"], errors='coerce').fillna(0) > 0) |
+                (pd.to_numeric(merged_df["Generation (Thermal Coal)"], errors='coerce').fillna(0) > 0)
             )
         ].copy()
         if "Merged" in sp_only_df.columns:
@@ -533,7 +532,7 @@ def main():
         # - "Excluded Companies" (merged)
         # - "Retained Companies" (merged)
         # - "Urgewald Only" (UR-only)
-        # - "S&P Only" (SPGlobal records unmerged and with non-empty S&P values)
+        # - "S&P Only" (SPGlobal records unmerged with non-zero S&P values)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             excluded_df.to_excel(writer, sheet_name="Excluded Companies", index=False)
@@ -548,7 +547,7 @@ def main():
         st.write(f"Excluded (Merged): {len(excluded_df)}")
         st.write(f"Retained (Merged): {len(retained_df)}")
         st.write(f"Urgewald Only: {len(filtered_ur_only)}")
-        st.write(f"S&P Only (Unmerged with S&P values): {len(sp_only_df)}")
+        st.write(f"S&P Only (Unmerged with non-zero S&P values): {len(sp_only_df)}")
         st.write(f"Run Time: {elapsed:.2f} seconds")
 
         st.download_button(
@@ -558,5 +557,5 @@ def main():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
