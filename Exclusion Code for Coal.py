@@ -116,9 +116,10 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
             raise ValueError("Urgewald file is empty.")
         full_df = pd.DataFrame(data)
         header = full_df.iloc[0].fillna("")
-        # Filter header: remove any column equal to "parent company"
+        # Filter header to remove any column equal to "parent company"
         filtered_header = [col for col in header if str(col).strip().lower() != "parent company"]
         ur_df = full_df.iloc[1:].reset_index(drop=True)
+        # Keep only columns whose header (from the first row) is not "parent company"
         ur_df = ur_df.loc[:, header.str.strip().str.lower() != "parent company"]
         ur_df.columns = filtered_header
         ur_df = make_columns_unique(ur_df)
@@ -144,7 +145,7 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
         return pd.DataFrame()
 
 ################################################
-# 6. NORMALIZE KEYS FOR MATCHING
+# 6. NORMALIZE KEYS FOR MERGING
 ################################################
 def normalize_key(s):
     s = s.lower()
@@ -171,65 +172,63 @@ def unify_bbticker(r):
     return normalize_key(str(r.get("BB Ticker", "")))
 
 ################################################
-# 7. VECTORIZED MATCHING (Require at least 2 keys to match)
+# 7. VECTORIZED MATCHING (Custom Matching Criteria)
 ################################################
-def vectorized_match(sp_df, ur_df):
-    # Add normalized key columns for SPGlobal
-    sp_df["norm_name"] = sp_df["SP_ENTITY_NAME"].astype(str).apply(normalize_key)
+def vectorized_match_custom(sp_df, ur_df):
+    sp_df = sp_df.copy()
+    ur_df = ur_df.copy()
+    # For SPGlobal, compute normalized keys:
     sp_df["norm_isin"] = sp_df["SP_ISIN"].astype(str).apply(normalize_key)
-    sp_df["norm_lei"]  = sp_df["SP_LEI"].astype(str).apply(normalize_key)
-    if "BB Ticker" in sp_df.columns:
-        sp_df["norm_bbticker"] = sp_df["BB Ticker"].astype(str).apply(normalize_key)
-    else:
-        sp_df["norm_bbticker"] = ""
-    # Add normalized key columns for Urgewald
-    ur_df["norm_name"] = ur_df["Company"].astype(str).apply(normalize_key)
+    sp_df["norm_lei"] = sp_df["SP_LEI"].astype(str).apply(normalize_key)
+    sp_df["norm_name"] = sp_df["SP_ENTITY_NAME"].astype(str).apply(normalize_key)
+    # For Urgewald, ensure the required columns exist:
+    for col in ["ISIN equity", "LEI", "Company", "BB Ticker"]:
+        if col not in ur_df.columns:
+            ur_df[col] = ""
     ur_df["norm_isin"] = ur_df["ISIN equity"].astype(str).apply(normalize_key)
-    ur_df["norm_lei"]  = ur_df["LEI"].astype(str).apply(normalize_key)
-    if "BB Ticker" in ur_df.columns:
-        ur_df["norm_bbticker"] = ur_df["BB Ticker"].astype(str).apply(normalize_key)
-    else:
-        ur_df["norm_bbticker"] = ""
-    # Create sets for Urgewald keys
-    ur_names = set(ur_df["norm_name"])
-    ur_isins = set(ur_df["norm_isin"])
-    ur_leis = set(ur_df["norm_lei"])
-    ur_bbtickers = set(ur_df["norm_bbticker"])
-    def match_count(row):
-        count = 0
-        if row["norm_name"] and row["norm_name"] in ur_names:
-            count += 1
-        if row["norm_isin"] and row["norm_isin"] in ur_isins:
-            count += 1
-        if row["norm_lei"] and row["norm_lei"] in ur_leis:
-            count += 1
-        if row["norm_bbticker"] and row["norm_bbticker"] in ur_bbtickers:
-            count += 1
-        return count
-    sp_df["match_count"] = sp_df.apply(match_count, axis=1)
-    sp_df["Merged"] = sp_df["match_count"] >= 2
-
-    # For Urgewald, create sets from SPGlobal keys
-    sp_names = set(sp_df["norm_name"])
-    sp_isins = set(sp_df["norm_isin"])
-    sp_leis = set(sp_df["norm_lei"])
-    sp_bbtickers = set(sp_df["norm_bbticker"])
-    def match_count_ur(row):
-        count = 0
-        if row["norm_name"] and row["norm_name"] in sp_names:
-            count += 1
-        if row["norm_isin"] and row["norm_isin"] in sp_isins:
-            count += 1
-        if row["norm_lei"] and row["norm_lei"] in sp_leis:
-            count += 1
-        if row["norm_bbticker"] and row["norm_bbticker"] in sp_bbtickers:
-            count += 1
-        return count
-    ur_df["match_count"] = ur_df.apply(match_count_ur, axis=1)
-    ur_df["Merged"] = ur_df["match_count"] >= 2
-
-    for col in ["norm_name", "norm_isin", "norm_lei", "norm_bbticker", "match_count"]:
+    ur_df["norm_lei"] = ur_df["LEI"].astype(str).apply(normalize_key)
+    ur_df["norm_company"] = ur_df["Company"].astype(str).apply(normalize_key)
+    ur_df["norm_bbticker"] = ur_df["BB Ticker"].astype(str).apply(normalize_key)
+    
+    # Define sets for Urgewald keys:
+    ur_isin_set = set(ur_df["norm_isin"])
+    ur_lei_set = set(ur_df["norm_lei"])
+    ur_company_set = set(ur_df["norm_company"])
+    ur_bbticker_set = set(ur_df["norm_bbticker"])
+    
+    def sp_match(row):
+        # Match if any of these conditions hold:
+        if row["norm_isin"] and row["norm_isin"] in ur_isin_set:
+            return True
+        if row["norm_lei"] and row["norm_lei"] in ur_lei_set:
+            return True
+        if row["norm_name"] and row["norm_name"] in ur_bbticker_set:
+            return True
+        if row["norm_name"] and row["norm_name"] in ur_company_set:
+            return True
+        return False
+    sp_df["Merged"] = sp_df.apply(sp_match, axis=1)
+    
+    # For Urgewald, define sets from SPGlobal:
+    sp_isin_set = set(sp_df["norm_isin"])
+    sp_lei_set = set(sp_df["norm_lei"])
+    sp_name_set = set(sp_df["norm_name"])
+    def ur_match(row):
+        if row["norm_isin"] and row["norm_isin"] in sp_isin_set:
+            return True
+        if row["norm_lei"] and row["norm_lei"] in sp_lei_set:
+            return True
+        if row["norm_company"] and row["norm_company"] in sp_name_set:
+            return True
+        if row["norm_bbticker"] and row["norm_bbticker"] in sp_name_set:
+            return True
+        return False
+    ur_df["Merged"] = ur_df.apply(ur_match, axis=1)
+    
+    # Drop temporary columns:
+    for col in ["norm_isin", "norm_lei", "norm_name"]:
         sp_df.drop(columns=[col], inplace=True)
+    for col in ["norm_isin", "norm_lei", "norm_company", "norm_bbticker"]:
         ur_df.drop(columns=[col], inplace=True)
     return sp_df, ur_df
 
@@ -265,8 +264,8 @@ def filter_companies(df,
         coal_rev = pd.to_numeric(row.get("Coal Share of Revenue", 0), errors="coerce") or 0.0
         coal_power = pd.to_numeric(row.get("Coal Share of Power Production", 0), errors="coerce") or 0.0
         capacity = pd.to_numeric(row.get("Installed Coal Power Capacity (MW)", 0), errors="coerce") or 0.0
-        gen_thermal = pd.to_numeric(row.get("Generation (Thermal Coal)", 0), errors="coerce") or 0.0
-        thermal_mining = pd.to_numeric(row.get("Thermal Coal Mining", 0), errors="coerce") or 0.0
+        gen_val = pd.to_numeric(row.get("Generation (Thermal Coal)", 0), errors="coerce") or 0.0
+        thermal_val = pd.to_numeric(row.get("Thermal Coal Mining", 0), errors="coerce") or 0.0
         expansion_text = str(row.get("expansion", "")).lower()
         prod_str = str(row.get(">10MT / >5GW", "")).lower()
         if exclude_mining:
@@ -276,8 +275,8 @@ def filter_companies(df,
             if exclude_mining_prod_mt and (">10mt" in prod_str):
                 if mining_prod_mt_threshold <= 10:
                     reasons.append(f">10MT indicated (threshold {mining_prod_mt_threshold}MT)")
-            if exclude_thermal_coal_mining and (thermal_mining > thermal_coal_mining_threshold):
-                reasons.append(f"Thermal Coal Mining {thermal_mining:.2f}% > {thermal_coal_mining_threshold}%")
+            if exclude_thermal_coal_mining and (thermal_val > thermal_coal_mining_threshold):
+                reasons.append(f"Thermal Coal Mining {thermal_val:.2f}% > {thermal_coal_mining_threshold}%")
         if exclude_power:
             if ("power" in sector or "generation" in sector) and exclude_power_revenue:
                 if (coal_rev * 100) > power_coal_rev_threshold:
@@ -286,8 +285,8 @@ def filter_companies(df,
                 reasons.append(f"Coal power production {coal_power*100:.2f}% > {power_prod_threshold_percent}%")
             if exclude_capacity_mw and (capacity > capacity_threshold_mw):
                 reasons.append(f"Installed capacity {capacity:.2f}MW > {capacity_threshold_mw}MW")
-            if exclude_generation_thermal and (gen_thermal > generation_thermal_threshold):
-                reasons.append(f"Generation (Thermal Coal) {gen_thermal:.2f}% > {generation_thermal_threshold}%")
+            if exclude_generation_thermal and (gen_val > generation_thermal_threshold):
+                reasons.append(f"Generation (Thermal Coal) {gen_val:.2f}% > {generation_thermal_threshold}%")
         if exclude_services:
             if exclude_services_rev and (coal_rev * 100) > services_rev_threshold:
                 reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {services_rev_threshold}% (Services)")
@@ -300,6 +299,33 @@ def filter_companies(df,
         exclusion_reasons.append("; ".join(reasons) if reasons else "")
     df["Excluded"] = exclusion_flags
     df["Exclusion Reasons"] = exclusion_reasons
+    return df
+
+################################################
+# Helper functions for output column adjustments
+################################################
+def rename_ur_columns(df):
+    """Rename UR columns to have U_ prefix for identification fields."""
+    mapping = {"Company": "U_Company", "BB Ticker": "U_BB Ticker",
+               "ISIN equity": "U_ISIN equity", "LEI": "U_LEI"}
+    df = df.copy()
+    df.rename(columns=mapping, inplace=True)
+    return df
+
+def add_empty_ur_columns(df):
+    """For SPGlobal records, add empty UR identification columns."""
+    df = df.copy()
+    for col in ["U_Company", "U_BB Ticker", "U_ISIN equity", "U_LEI"]:
+        if col not in df.columns:
+            df[col] = ""
+    return df
+
+def add_empty_sp_columns(df):
+    """For UR records, add empty SPGlobal identification columns."""
+    df = df.copy()
+    for col in ["SP_ENTITY_NAME", "SP_ENTITY_ID", "SP_COMPANY_ID", "SP_ISIN", "SP_LEI"]:
+        if col not in df.columns:
+            df[col] = ""
     return df
 
 ################################################
@@ -366,30 +392,14 @@ def main():
             return
         ur_df = make_columns_unique(ur_df)
 
-        # Vectorized matching: add normalized keys and mark merged records
-        def add_normalized_keys(df, source):
-            if source == "sp":
-                df["norm_name"] = df["SP_ENTITY_NAME"].astype(str).apply(normalize_key)
-                df["norm_isin"] = df["SP_ISIN"].astype(str).apply(normalize_key)
-                df["norm_lei"] = df["SP_LEI"].astype(str).apply(normalize_key)
-            else:
-                df["norm_name"] = df["Company"].astype(str).apply(normalize_key)
-                df["norm_isin"] = df["ISIN equity"].astype(str).apply(normalize_key)
-                df["norm_lei"] = df["LEI"].astype(str).apply(normalize_key)
-            if "BB Ticker" not in df.columns:
-                df["BB Ticker"] = ""
-            df["norm_bbticker"] = df["BB Ticker"].astype(str).apply(normalize_key)
-            return df
-
-        sp_df = add_normalized_keys(sp_df.copy(), "sp")
-        ur_df = add_normalized_keys(ur_df.copy(), "ur")
-        sp_df, ur_df = vectorized_match(sp_df, ur_df)
+        # Use custom vectorized matching per criteria:
+        sp_df, ur_df = vectorized_match_custom(sp_df, ur_df)
 
         sp_only_df = sp_df[sp_df["Merged"] == False].copy()
         ur_only_df = ur_df[ur_df["Merged"] == False].copy()
         if "Merged" in sp_only_df.columns:
             sp_only_df.drop(columns=["Merged"], inplace=True)
-        # For S&P Only, restrict to records with nonzero Thermal Coal Mining or Generation (Thermal Coal)
+        # For S&P Only, further restrict to records with nonzero Thermal Coal Mining or Generation (Thermal Coal)
         sp_only_df = sp_only_df[
             (pd.to_numeric(sp_only_df["Thermal Coal Mining"], errors='coerce').fillna(0) > 0) |
             (pd.to_numeric(sp_only_df["Generation (Thermal Coal)"], errors='coerce').fillna(0) > 0)
@@ -564,6 +574,61 @@ def reorder_for_excel_custom(df, desired_order):
         if col not in df.columns:
             df[col] = ""
     return df[desired_order]
+
+def vectorized_match_custom(sp_df, ur_df):
+    sp_df = sp_df.copy()
+    ur_df = ur_df.copy()
+    # For SPGlobal:
+    sp_df["norm_isin"] = sp_df["SP_ISIN"].astype(str).apply(normalize_key)
+    sp_df["norm_lei"] = sp_df["SP_LEI"].astype(str).apply(normalize_key)
+    sp_df["norm_name"] = sp_df["SP_ENTITY_NAME"].astype(str).apply(normalize_key)
+    # For Urgewald, ensure the identification columns exist:
+    for col in ["ISIN equity", "LEI", "Company", "BB Ticker"]:
+        if col not in ur_df.columns:
+            ur_df[col] = ""
+    ur_df["norm_isin"] = ur_df["ISIN equity"].astype(str).apply(normalize_key)
+    ur_df["norm_lei"] = ur_df["LEI"].astype(str).apply(normalize_key)
+    ur_df["norm_company"] = ur_df["Company"].astype(str).apply(normalize_key)
+    ur_df["norm_bbticker"] = ur_df["BB Ticker"].astype(str).apply(normalize_key)
+    
+    ur_isin_set = set(ur_df["norm_isin"])
+    ur_lei_set = set(ur_df["norm_lei"])
+    ur_company_set = set(ur_df["norm_company"])
+    ur_bbticker_set = set(ur_df["norm_bbticker"])
+    
+    def sp_match(row):
+        if row["norm_isin"] and row["norm_isin"] in ur_isin_set:
+            return True
+        if row["norm_lei"] and row["norm_lei"] in ur_lei_set:
+            return True
+        if row["norm_name"] and row["norm_name"] in ur_bbticker_set:
+            return True
+        if row["norm_name"] and row["norm_name"] in ur_company_set:
+            return True
+        return False
+    sp_df["Merged"] = sp_df.apply(sp_match, axis=1)
+    
+    sp_isin_set = set(sp_df["norm_isin"])
+    sp_lei_set = set(sp_df["norm_lei"])
+    sp_name_set = set(sp_df["norm_name"])
+    
+    def ur_match(row):
+        if row["norm_isin"] and row["norm_isin"] in sp_isin_set:
+            return True
+        if row["norm_lei"] and row["norm_lei"] in sp_lei_set:
+            return True
+        if row["norm_company"] and row["norm_company"] in sp_name_set:
+            return True
+        if row["norm_bbticker"] and row["norm_bbticker"] in sp_name_set:
+            return True
+        return False
+    ur_df["Merged"] = ur_df.apply(ur_match, axis=1)
+    
+    for col in ["norm_isin", "norm_lei", "norm_name"]:
+        sp_df.drop(columns=[col], inplace=True)
+    for col in ["norm_isin", "norm_lei", "norm_company", "norm_bbticker"]:
+        ur_df.drop(columns=[col], inplace=True)
+    return sp_df, ur_df
 
 if __name__ == "__main__":
     main()
