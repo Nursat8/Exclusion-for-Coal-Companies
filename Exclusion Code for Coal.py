@@ -32,13 +32,17 @@ def fuzzy_rename_columns(df, rename_map):
     rename_map: { final_name: [pattern1, pattern2, ...], ... }
     """
     used_cols = set()
+    columns_before = list(df.columns)
     for final_name, patterns in rename_map.items():
-        for col in df.columns:
+        for col in columns_before:
             if col in used_cols:
                 continue
-            if any(pat.lower().strip() in col.lower() for pat in patterns):
-                df.rename(columns={col: final_name}, inplace=True)
-                used_cols.add(col)
+            col_lower = col.lower().strip()
+            for pat in patterns:
+                if pat.lower().strip() in col_lower:
+                    df.rename(columns={col: final_name}, inplace=True)
+                    used_cols.add(col)
+                    break
     return df
 
 ################################################
@@ -51,44 +55,48 @@ def reorder_for_excel(df):
       - "BB Ticker" in column AP (42nd)
       - "ISIN equity" in column AQ (43rd)
       - "LEI" in column AT (46th)
-    Then move "Excluded" and "Exclusion Reasons" to the end.
+    Then move "Excluded" and "Exclusion Reasons" to the very end.
     """
-    desired_length = 46  # positions for columns A..AT
+    desired_length = 46  # Force positions for columns A..AT (1..46)
     placeholders = ["(placeholder)"] * desired_length
 
     # Fixed positions (0-indexed)
-    placeholders[6] = "Company"       # Column G (7th)
-    placeholders[41] = "BB Ticker"     # Column AP (42nd)
-    placeholders[42] = "ISIN equity"   # Column AQ (43rd)
-    placeholders[45] = "LEI"           # Column AT (46th)
+    placeholders[6] = "Company"       # 7th column
+    placeholders[41] = "BB Ticker"     # 42nd column
+    placeholders[42] = "ISIN equity"   # 43rd column
+    placeholders[45] = "LEI"           # 46th column
 
     forced_positions = {6, 41, 42, 45}
     forced_cols = {"Company", "BB Ticker", "ISIN equity", "LEI"}
+
     all_cols = list(df.columns)
     remaining_cols = [c for c in all_cols if c not in forced_cols]
 
-    idx = 0
+    idx_remain = 0
     for i in range(desired_length):
-        if i not in forced_positions and idx < len(remaining_cols):
-            placeholders[i] = remaining_cols[idx]
-            idx += 1
+        if i not in forced_positions:
+            if idx_remain < len(remaining_cols):
+                placeholders[i] = remaining_cols[idx_remain]
+                idx_remain += 1
 
-    leftover = remaining_cols[idx:]
-    final_order = placeholders + leftover
+    leftover = remaining_cols[idx_remain:]
+    final_col_order = placeholders + leftover
 
-    for c in final_order:
+    for c in final_col_order:
         if c not in df.columns and c == "(placeholder)":
             df[c] = np.nan
 
-    df = df[final_order]
+    df = df[final_col_order]
     df = df.loc[:, ~((df.columns == "(placeholder)") & (df.isna().all()))]
+
     # Move "Excluded" and "Exclusion Reasons" to the end
     cols = list(df.columns)
     for c in ["Excluded", "Exclusion Reasons"]:
         if c in cols:
             cols.remove(c)
             cols.append(c)
-    return df[cols]
+    df = df[cols]
+    return df
 
 ################################################
 # 4. LOAD SPGLOBAL (AUTO-DETECT MULTI-HEADER)
@@ -105,16 +113,17 @@ def load_spglobal(file, sheet_name="Sheet1"):
         row6 = full_df.iloc[5].fillna("")
         final_cols = []
         for col_idx in range(full_df.shape[1]):
-            top = str(row5[col_idx]).strip()
-            bot = str(row6[col_idx]).strip()
-            combined = top if top else ""
-            if bot and bot.lower() not in combined.lower():
-                combined = (combined + " " + bot).strip()
-            final_cols.append(combined)
-        sp_df = full_df.iloc[6:].reset_index(drop=True)
-        sp_df.columns = final_cols
-        sp_df = make_columns_unique(sp_df)
-        rename_map = {
+            top_val = str(row5[col_idx]).strip()
+            bot_val = str(row6[col_idx]).strip()
+            combined = top_val if top_val else ""
+            if bot_val and bot_val.lower() not in combined.lower():
+                combined = (combined + " " + bot_val).strip() if combined else bot_val
+            final_cols.append(combined.strip())
+        sp_data_df = full_df.iloc[6:].reset_index(drop=True)
+        sp_data_df.columns = final_cols
+        sp_data_df = make_columns_unique(sp_data_df)
+
+        rename_map_sp = {
             "SP_ENTITY_NAME":  ["sp entity name", "s&p entity name", "entity name"],
             "SP_ENTITY_ID":    ["sp entity id", "entity id"],
             "SP_COMPANY_ID":   ["sp company id", "company id"],
@@ -122,7 +131,7 @@ def load_spglobal(file, sheet_name="Sheet1"):
             "SP_LEI":          ["sp lei", "lei code"],
             "Generation (Thermal Coal)": ["generation (thermal coal)"],
             "Thermal Coal Mining": ["thermal coal mining"],
-            # Metallurgical Coal Mining removed per instruction.
+            # Removed Metallurgical Coal Mining options
             "Coal Share of Revenue": ["coal share of revenue"],
             "Coal Share of Power Production": ["coal share of power production"],
             "Installed Coal Power Capacity (MW)": ["installed coal power capacity"],
@@ -130,8 +139,8 @@ def load_spglobal(file, sheet_name="Sheet1"):
             ">10MT / >5GW": [">10mt", ">5gw"],
             "expansion": ["expansion"],
         }
-        sp_df = fuzzy_rename_columns(sp_df, rename_map)
-        return sp_df
+        sp_data_df = fuzzy_rename_columns(sp_data_df, rename_map_sp)
+        return sp_data_df
     except Exception as e:
         st.error(f"Error loading SPGlobal: {e}")
         return pd.DataFrame()
@@ -148,10 +157,11 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
             raise ValueError("Urgewald file is empty.")
         full_df = pd.DataFrame(data)
         header = full_df.iloc[0].fillna("")
-        ur_df = full_df.iloc[1:].reset_index(drop=True)
-        ur_df.columns = header
-        ur_df = make_columns_unique(ur_df)
-        rename_map = {
+        ur_data_df = full_df.iloc[1:].reset_index(drop=True)
+        ur_data_df.columns = header
+        ur_data_df = make_columns_unique(ur_data_df)
+
+        rename_map_ur = {
             "Company": ["company", "issuer name"],
             "ISIN equity": ["isin equity", "isin(eq)", "isin eq"],
             "LEI": ["lei", "lei code"],
@@ -166,8 +176,8 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
             "Thermal Coal Mining": ["thermal coal mining"],
             "Metallurgical Coal Mining": ["metallurgical coal mining"],
         }
-        ur_df = fuzzy_rename_columns(ur_df, rename_map)
-        return ur_df
+        ur_data_df = fuzzy_rename_columns(ur_data_df, rename_map_ur)
+        return ur_data_df
     except Exception as e:
         st.error(f"Error loading Urgewald: {e}")
         return pd.DataFrame()
@@ -182,76 +192,57 @@ def normalize_key(s):
     return s.strip()
 
 def unify_name(r):
-    sp = str(r.get("SP_ENTITY_NAME", ""))
-    ur = str(r.get("Company", ""))
-    return normalize_key(sp) if sp.strip() else normalize_key(ur)
+    sp_name = normalize_key(str(r.get("SP_ENTITY_NAME", "")))
+    ur_name = normalize_key(str(r.get("Company", "")))
+    return sp_name if sp_name else (ur_name if ur_name else None)
 
 def unify_isin(r):
-    sp = str(r.get("SP_ISIN", ""))
-    ur = str(r.get("ISIN equity", ""))
-    return normalize_key(sp) if sp.strip() else normalize_key(ur)
+    sp_isin = normalize_key(str(r.get("SP_ISIN", "")))
+    ur_isin = normalize_key(str(r.get("ISIN equity", "")))
+    return sp_isin if sp_isin else (ur_isin if ur_isin else None)
 
 def unify_lei(r):
-    sp = str(r.get("SP_LEI", ""))
-    ur = str(r.get("LEI", ""))
-    return normalize_key(sp) if sp.strip() else normalize_key(ur)
+    sp_lei = normalize_key(str(r.get("SP_LEI", "")))
+    ur_lei = normalize_key(str(r.get("LEI", "")))
+    return sp_lei if sp_lei else (ur_lei if ur_lei else None)
 
 def unify_bbticker(r):
     return normalize_key(str(r.get("BB Ticker", "")))
 
 ################################################
-# 7. MERGE URGEWALD INTO SPGLOBAL (Optimized with Dictionaries)
+# 7. PERFECT MATCHING: FIND UNMATCHED RECORDS VIA NESTED LOOPS
 ################################################
-def merge_ur_into_sp(sp_df, ur_df):
-    sp_records = sp_df.to_dict("records")
-    # Add a "Merged" flag to each SP record (default False)
-    for rec in sp_records:
-        rec["Merged"] = False
-    # Build dictionaries for quick lookup on four key fields
-    name_dict = {}
-    isin_dict = {}
-    lei_dict = {}
-    bbticker_dict = {}
-    for i, rec in enumerate(sp_records):
-        n = unify_name(rec)
-        if n:
-            name_dict.setdefault(n, []).append(i)
-        iis = unify_isin(rec)
-        if iis:
-            isin_dict.setdefault(iis, []).append(i)
-        l = unify_lei(rec)
-        if l:
-            lei_dict.setdefault(l, []).append(i)
-        bt = unify_bbticker(rec)
-        if bt:
-            bbticker_dict.setdefault(bt, []).append(i)
-    merged_records = sp_records.copy()
-    ur_only_records = []
-    for _, ur_row in ur_df.iterrows():
-        n = unify_name(ur_row)
-        iis = unify_isin(ur_row)
-        l = unify_lei(ur_row)
-        bt = unify_bbticker(ur_row)
-        indices = set()
-        if n and n in name_dict:
-            indices.update(name_dict[n])
-        if iis and iis in isin_dict:
-            indices.update(isin_dict[iis])
-        if l and l in lei_dict:
-            indices.update(lei_dict[l])
-        if bt and bt in bbticker_dict:
-            indices.update(bbticker_dict[bt])
-        if indices:
-            index = list(indices)[0]
-            for k, v in ur_row.items():
-                if (k not in merged_records[index]) or (merged_records[index][k] is None) or (str(merged_records[index][k]).strip() == ""):
-                    merged_records[index][k] = v
-            merged_records[index]["Merged"] = True
-        else:
-            ur_only_records.append(ur_row.to_dict())
-    merged_df = pd.DataFrame(merged_records)
-    ur_only_df = pd.DataFrame(ur_only_records)
-    return merged_df, ur_only_df
+def find_unmatched(sp_df, ur_df):
+    sp_df = sp_df.copy()
+    ur_df = ur_df.copy()
+    sp_df["Matched"] = False
+    ur_df["Matched"] = False
+    for i in range(len(sp_df)):
+        sp_row = sp_df.iloc[i].to_dict()
+        for j in range(len(ur_df)):
+            ur_row = ur_df.iloc[j].to_dict()
+            sp_vals = [
+                normalize_key(str(sp_row.get("SP_LEI", ""))),
+                normalize_key(str(sp_row.get("SP_ISIN", ""))),
+                normalize_key(str(sp_row.get("BB Ticker", ""))),
+                normalize_key(str(sp_row.get("SP_ENTITY_NAME", "")))
+            ]
+            ur_vals = [
+                normalize_key(str(ur_row.get("LEI", ""))),
+                normalize_key(str(ur_row.get("ISIN equity", ""))),
+                normalize_key(str(ur_row.get("BB Ticker", ""))),
+                normalize_key(str(ur_row.get("Company", "")))
+            ]
+            for a, b in zip(sp_vals, ur_vals):
+                if a and b and a == b:
+                    sp_df.at[sp_df.index[i], "Matched"] = True
+                    ur_df.at[ur_df.index[j], "Matched"] = True
+                    break
+    sp_only = sp_df[sp_df["Matched"] == False].copy()
+    ur_only = ur_df[ur_df["Matched"] == False].copy()
+    sp_only.drop(columns=["Matched"], inplace=True)
+    ur_only.drop(columns=["Matched"], inplace=True)
+    return sp_only, ur_only
 
 ################################################
 # 8. FILTER COMPANIES (Thresholds & Exclusion Logic)
@@ -279,52 +270,56 @@ def filter_companies(df,
                      exclude_services_rev,
                      # Global expansions:
                      expansions_global,
-                     # Revenue threshold toggles (applied based on Coal Industry Sector)
+                     # Revenue threshold toggles:
                      exclude_mining_revenue,
                      exclude_power_revenue):
     exclusion_flags = []
     exclusion_reasons = []
     for idx, row in df.iterrows():
         reasons = []
-        # Determine sector for revenue checks
+        # Get sector information for revenue checks
         sector = str(row.get("Coal Industry Sector", "")).lower()
-        # Numeric values (coal revenue is stored as decimal; multiply by 100 for percentage)
+        # Numeric columns (coal revenue stored as a decimal, so multiply by 100)
         coal_rev = pd.to_numeric(row.get("Coal Share of Revenue", 0), errors="coerce") or 0.0
-        coal_power = pd.to_numeric(row.get("Coal Share of Power Production", 0), errors="coerce") or 0.0
-        capacity = pd.to_numeric(row.get("Installed Coal Power Capacity (MW)", 0), errors="coerce") or 0.0
-        # S&P identifier values (as percentages, no multiplication)
-        gen_thermal = pd.to_numeric(row.get("Generation (Thermal Coal)", 0), errors="coerce") or 0.0
-        thermal_mining = pd.to_numeric(row.get("Thermal Coal Mining", 0), errors="coerce") or 0.0
+        coal_power_share = pd.to_numeric(row.get("Coal Share of Power Production", 0), errors="coerce") or 0.0
+        installed_cap = pd.to_numeric(row.get("Installed Coal Power Capacity (MW)", 0), errors="coerce") or 0.0
+
+        # S&P identifier values (as percentages; no multiplication)
+        gen_thermal_val = pd.to_numeric(row.get("Generation (Thermal Coal)", 0), errors="coerce") or 0.0
+        therm_mining_val = pd.to_numeric(row.get("Thermal Coal Mining", 0), errors="coerce") or 0.0
 
         expansion_text = str(row.get("expansion", "")).lower()
         prod_str = str(row.get(">10MT / >5GW", "")).lower()
 
-        #### MINING: Apply revenue check only if sector contains "mining"
+        #### MINING: apply revenue check only if sector contains "mining"
         if exclude_mining:
-            if "mining" in sector and exclude_mining_revenue:
-                if (coal_rev * 100) > mining_coal_rev_threshold:
-                    reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {mining_coal_rev_threshold}% (Mining)")
+            if "mining" in sector:
+                if exclude_mining_revenue:
+                    if (coal_rev * 100) > mining_coal_rev_threshold:
+                        reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {mining_coal_rev_threshold}% (Mining)")
             if exclude_mining_prod_mt and (">10mt" in prod_str):
                 if mining_prod_mt_threshold <= 10:
                     reasons.append(f">10MT indicated (threshold {mining_prod_mt_threshold}MT)")
-            if exclude_thermal_coal_mining and (thermal_mining > thermal_coal_mining_threshold):
-                reasons.append(f"Thermal Coal Mining {thermal_mining:.2f}% > {thermal_coal_mining_threshold}%")
-        #### POWER: Apply revenue check only if sector contains "power" or "generation"
+            if exclude_thermal_coal_mining and (therm_mining_val > thermal_coal_mining_threshold):
+                reasons.append(f"Thermal Coal Mining {therm_mining_val:.2f}% > {thermal_coal_mining_threshold}%")
+        #### POWER: apply revenue check only if sector contains "power" or "generation"
         if exclude_power:
-            if ("power" in sector or "generation" in sector) and exclude_power_revenue:
-                if (coal_rev * 100) > power_coal_rev_threshold:
-                    reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {power_coal_rev_threshold}% (Power)")
-            if exclude_power_prod_percent and (coal_power * 100) > power_prod_threshold_percent:
-                reasons.append(f"Coal power production {coal_power*100:.2f}% > {power_prod_threshold_percent}%")
-            if exclude_capacity_mw and (capacity > capacity_threshold_mw):
-                reasons.append(f"Installed capacity {capacity:.2f}MW > {capacity_threshold_mw}MW")
-            if exclude_generation_thermal and (gen_thermal > generation_thermal_threshold):
-                reasons.append(f"Generation (Thermal Coal) {gen_thermal:.2f}% > {generation_thermal_threshold}%")
+            if ("power" in sector or "generation" in sector):
+                if exclude_power_revenue:
+                    if (coal_rev * 100) > power_coal_rev_threshold:
+                        reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {power_coal_rev_threshold}% (Power)")
+            if exclude_power_prod_percent and (coal_power_share * 100) > power_prod_threshold_percent:
+                reasons.append(f"Coal power production {coal_power_share*100:.2f}% > {power_prod_threshold_percent}%")
+            if exclude_capacity_mw and (installed_cap > capacity_threshold_mw):
+                reasons.append(f"Installed capacity {installed_cap:.2f}MW > {capacity_threshold_mw}MW")
+            if exclude_generation_thermal and (gen_thermal_val > generation_thermal_threshold):
+                reasons.append(f"Generation (Thermal Coal) {gen_thermal_val:.2f}% > {generation_thermal_threshold}%")
         #### SERVICES
         if exclude_services:
-            if exclude_services_rev and (coal_rev * 100) > services_rev_threshold:
-                reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {services_rev_threshold}% (Services)")
-        #### EXPANSIONS
+            if exclude_services_rev:
+                if (coal_rev * 100) > services_rev_threshold:
+                    reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {services_rev_threshold}% (Services)")
+        #### EXPANSIONS (applied universally)
         if expansions_global:
             for kw in expansions_global:
                 if kw.lower() in expansion_text:
@@ -341,7 +336,7 @@ def filter_companies(df,
 # 9. MAIN STREAMLIT APP
 ################################################
 def main():
-    st.set_page_config(page_title="Coal Exclusion Filter – Unmatched & Excluded", layout="wide")
+    st.set_page_config(page_title="Coal Exclusion Filter – Unmatched Retained & Excluded", layout="wide")
     st.title("Coal Exclusion Filter")
 
     # Sidebar: File & Sheet Settings
@@ -352,7 +347,7 @@ def main():
     ur_file = st.sidebar.file_uploader("Upload Urgewald Excel file", type=["xlsx"])
     st.sidebar.markdown("---")
 
-    # Sidebar: Mining Thresholds (SPGlobal – Metallurgical removed)
+    # Sidebar: Mining Thresholds (for SPGlobal; Metallurgical options removed)
     with st.sidebar.expander("Mining Thresholds", expanded=True):
         exclude_mining_revenue = st.checkbox("Exclude if coal revenue > threshold? (Mining)", value=True)
         mining_coal_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=15.0)
@@ -406,15 +401,12 @@ def main():
             return
         ur_df = make_columns_unique(ur_df)
 
-        # --- Use dictionary-based perfect matching for speed ---
-        merged_df, _ = merge_ur_into_sp(sp_df, ur_df)
-        # Unmatched SPGlobal records become S&P Only, unmatched Urgewald become Urgewald Only:
-        sp_only_df = merged_df[merged_df["Merged"] == False].copy()
-        ur_only_df = ur_df[~ur_df.index.isin(merged_df[merged_df["Merged"] == True].index)].copy()
-        if "Merged" in sp_only_df.columns:
-            sp_only_df.drop(columns=["Merged"], inplace=True)
-        
-        # Apply threshold filtering only to retained companies in the unmatched sets:
+        # Perfect matching: use nested loops to mark matches
+        sp_only_df, ur_only_df = find_unmatched(sp_df, ur_df)
+
+        # Apply threshold filtering separately on:
+        # - Unmatched SPGlobal records ("S&P Only")
+        # - Unmatched Urgewald records ("Urgewald Only")
         filtered_sp_only = filter_companies(
             df=sp_only_df,
             exclude_mining=True,
@@ -462,11 +454,11 @@ def main():
             exclude_power_revenue=exclude_power_revenue
         )
 
-        # For the output file, include only retained companies from the unmatched sets.
+        # In the output file, the "S&P Only" and "Urgewald Only" sheets should include only retained companies.
         sp_retained = filtered_sp_only[filtered_sp_only["Excluded"] == False].copy()
         ur_retained = filtered_ur_only[filtered_ur_only["Excluded"] == False].copy()
 
-        # Also, create the Excluded Companies sheet from the full datasets:
+        # For the exclusion file, put all excluded companies from both SPGlobal and Urgewald (the entire datasets).
         filtered_all_sp = filter_companies(
             df=sp_df,
             exclude_mining=True,
@@ -517,15 +509,15 @@ def main():
         excluded_ur = filtered_all_ur[filtered_all_ur["Excluded"] == True].copy()
         excluded_final = pd.concat([excluded_sp, excluded_ur], ignore_index=True)
 
-        # Reorder columns for final output
+        # Reorder columns for output
         sp_retained = reorder_for_excel(sp_retained)
         ur_retained = reorder_for_excel(ur_retained)
         excluded_final = reorder_for_excel(excluded_final)
 
-        # Prepare Excel output with three sheets:
-        # - "S&P Only": unmatched & retained SPGlobal records
-        # - "Urgewald Only": unmatched & retained Urgewald records
-        # - "Excluded Companies": all excluded companies from both datasets
+        # Write final output to Excel with three sheets:
+        # - "S&P Only": retained unmatched SPGlobal companies
+        # - "Urgewald Only": retained unmatched Urgewald companies
+        # - "Excluded Companies": all excluded companies from SPGlobal and Urgewald
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             sp_retained.to_excel(writer, sheet_name="S&P Only", index=False)
