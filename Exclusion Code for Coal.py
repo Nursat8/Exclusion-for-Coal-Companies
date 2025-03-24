@@ -11,7 +11,7 @@ import re
 ################################################
 def make_columns_unique(df):
     """
-    Append _1, _2, etc. to duplicate column names to avoid pyarrow errors.
+    Append _1, _2, etc. to duplicate column names.
     """
     seen = {}
     new_cols = []
@@ -38,10 +38,10 @@ def fuzzy_rename_columns(df, rename_map):
         for col in df.columns:
             if col in used:
                 continue
-            if any(p.lower().strip() in col.lower() for p in patterns):
-                # For "Company", avoid renaming if column name is "Parent Company"
-                if final == "Company" and col.lower().strip() == "parent company":
-                    continue
+            # When renaming to "Company" in UR, skip if col is "Parent Company"
+            if final == "Company" and col.strip().lower() == "parent company":
+                continue
+            if any(pat.lower().strip() in col.lower() for pat in patterns):
                 df.rename(columns={col: final}, inplace=True)
                 used.add(col)
     return df
@@ -51,36 +51,37 @@ def fuzzy_rename_columns(df, rename_map):
 ################################################
 def reorder_for_excel(df):
     """
-    Reorder columns so that:
-      - "Company" appears in column G (7th),
-      - "BB Ticker" in column AP (42nd),
-      - "ISIN equity" in column AQ (43rd),
-      - "LEI" in column AT (46th),
-    and then move "Excluded" and "Exclusion Reasons" to the very end.
+    Force specific columns into fixed positions:
+      - "Company" in column G (7th)
+      - "BB Ticker" in column AP (42nd)
+      - "ISIN equity" in column AQ (43rd)
+      - "LEI" in column AT (46th)
+    Then move "Excluded" and "Exclusion Reasons" to the very end.
     """
-    desired_length = 46  # Force positions for columns A..AT
+    desired_length = 46
     placeholders = ["(placeholder)"] * desired_length
 
     # Fixed positions (0-indexed)
-    placeholders[6] = "Company"       # 7th column
-    placeholders[41] = "BB Ticker"     # 42nd column
-    placeholders[42] = "ISIN equity"   # 43rd column
-    placeholders[45] = "LEI"           # 46th column
+    placeholders[6]  = "Company"
+    placeholders[41] = "BB Ticker"
+    placeholders[42] = "ISIN equity"
+    placeholders[45] = "LEI"
 
     forced_positions = {6, 41, 42, 45}
     forced_cols = {"Company", "BB Ticker", "ISIN equity", "LEI"}
     all_cols = list(df.columns)
     remaining = [c for c in all_cols if c not in forced_cols]
+
     idx = 0
     for i in range(desired_length):
         if i not in forced_positions and idx < len(remaining):
             placeholders[i] = remaining[idx]
             idx += 1
+
     leftover = remaining[idx:]
     final_order = placeholders + leftover
 
     df = df[[c for c in final_order if c in df.columns]]
-    # Move "Excluded" and "Exclusion Reasons" to the end if they exist
     cols = list(df.columns)
     for c in ["Excluded", "Exclusion Reasons"]:
         if c in cols:
@@ -144,15 +145,14 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
         if len(data) < 1:
             raise ValueError("Urgewald file is empty.")
         df = pd.DataFrame(data)
+        # Filter header: remove any column where header equals "Parent Company"
         header = df.iloc[0].fillna("")
-        # Drop column(s) whose header equals "Parent Company" (case-insensitive)
-        header = [col for col in header if str(col).strip().lower() != "parent company"]
-        # Rebuild dataframe using the filtered header
-        # Note: We assume that the first row (after filtering) now contains the correct header.
+        filtered_header = [col for col in header if str(col).strip().lower() != "parent company"]
         ur_df = df.iloc[1:].reset_index(drop=True)
-        # Keep only columns whose header (original) is not "Parent Company"
+        # Keep only columns corresponding to filtered_header (assume same order)
+        # (We assume that the "Parent Company" columns have been removed in the header row.)
         ur_df = ur_df.loc[:, df.iloc[0].str.strip().str.lower() != "parent company"]
-        ur_df.columns = header
+        ur_df.columns = filtered_header
         ur_df = make_columns_unique(ur_df)
         rename_map = {
             "Company": ["company", "issuer name"],
@@ -180,8 +180,8 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
 ################################################
 def normalize_key(s):
     s = s.lower()
-    s = re.sub(r'\s+', ' ', s)  # collapse whitespace
-    s = re.sub(r'[^\w\s]', '', s)  # remove punctuation
+    s = re.sub(r'\s+', ' ', s)
+    s = re.sub(r'[^\w\s]', '', s)
     return s.strip()
 
 def unify_name(r):
@@ -203,31 +203,28 @@ def unify_bbticker(r):
     return normalize_key(str(r.get("BB Ticker", "")))
 
 ################################################
-# 7. MATCHING USING DICTIONARIES (Optimized)
+# 7. VECTORIZED MATCHING
 ################################################
 def vectorized_match(sp_df, ur_df):
-    # Add normalized key columns to both datasets
+    # Add normalized key columns
     sp_df["norm_name"] = sp_df["SP_ENTITY_NAME"].astype(str).apply(normalize_key)
     sp_df["norm_isin"] = sp_df["SP_ISIN"].astype(str).apply(normalize_key)
     sp_df["norm_lei"]  = sp_df["SP_LEI"].astype(str).apply(normalize_key)
     sp_df["norm_bbticker"] = sp_df["BB Ticker"].astype(str).apply(normalize_key)
-    
     ur_df["norm_name"] = ur_df["Company"].astype(str).apply(normalize_key)
     ur_df["norm_isin"] = ur_df["ISIN equity"].astype(str).apply(normalize_key)
     ur_df["norm_lei"]  = ur_df["LEI"].astype(str).apply(normalize_key)
     ur_df["norm_bbticker"] = ur_df["BB Ticker"].astype(str).apply(normalize_key)
-    
-    # For SP, mark as merged if any of the key columns are found in UR
+    # For SP, mark as merged if any normalized key is in UR dataset
     sp_df["Merged"] = sp_df["norm_name"].isin(ur_df["norm_name"]) | \
                       sp_df["norm_isin"].isin(ur_df["norm_isin"]) | \
                       sp_df["norm_lei"].isin(ur_df["norm_lei"]) | \
                       sp_df["norm_bbticker"].isin(ur_df["norm_bbticker"])
-    # For UR, mark as merged if any key columns are found in SP
+    # For UR, mark as merged similarly
     ur_df["Merged"] = ur_df["norm_name"].isin(sp_df["norm_name"]) | \
                       ur_df["norm_isin"].isin(sp_df["norm_isin"]) | \
                       ur_df["norm_lei"].isin(sp_df["norm_lei"]) | \
                       ur_df["norm_bbticker"].isin(sp_df["norm_bbticker"])
-    
     # Drop temporary normalized columns
     for col in ["norm_name", "norm_isin", "norm_lei", "norm_bbticker"]:
         sp_df.drop(columns=[col], inplace=True)
@@ -235,7 +232,7 @@ def vectorized_match(sp_df, ur_df):
     return sp_df, ur_df
 
 ################################################
-# 8. THRESHOLD FILTERING (Vectorized Apply)
+# 8. THRESHOLD FILTERING VIA APPLY
 ################################################
 def compute_exclusion(row, mining_coal_rev_threshold, exclude_mining_revenue,
                       exclude_mining_prod_mt, mining_prod_mt_threshold,
@@ -270,8 +267,7 @@ def compute_exclusion(row, mining_coal_rev_threshold, exclude_mining_revenue,
         thermal_val = 0.0
     prod_str = str(row.get(">10MT / >5GW", "")).lower()
     expansion = str(row.get("expansion", "")).lower()
-
-    # For Mining: apply revenue check only if sector contains "mining"
+    # Mining revenue check only for sectors containing "mining"
     if "mining" in sector:
         if exclude_mining_revenue and (coal_rev * 100) > mining_coal_rev_threshold:
             reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {mining_coal_rev_threshold}% (Mining)")
@@ -279,7 +275,7 @@ def compute_exclusion(row, mining_coal_rev_threshold, exclude_mining_revenue,
         reasons.append(f">10MT indicated (threshold {mining_prod_mt_threshold}MT)")
     if exclude_thermal_coal_mining and (thermal_val > thermal_coal_mining_threshold):
         reasons.append(f"Thermal Coal Mining {thermal_val:.2f}% > {thermal_coal_mining_threshold}%")
-    # For Power: apply revenue check only if sector contains "power" or "generation"
+    # Power revenue check only for sectors containing "power" or "generation"
     if ("power" in sector or "generation" in sector):
         if exclude_power_revenue and (coal_rev * 100) > power_coal_rev_threshold:
             reasons.append(f"Coal revenue {coal_rev*100:.2f}% > {power_coal_rev_threshold}% (Power)")
@@ -308,7 +304,7 @@ def apply_thresholds(df, params):
 # 9. MAIN STREAMLIT APP
 ################################################
 def main():
-    st.set_page_config(page_title="Coal Exclusion Filter – Optimized Unmatched & Excluded", layout="wide")
+    st.set_page_config(page_title="Coal Exclusion Filter – Optimized", layout="wide")
     st.title("Coal Exclusion Filter")
 
     # Sidebar: File & Sheet Settings
@@ -359,32 +355,32 @@ def main():
             st.warning("Please provide both SPGlobal and Urgewald files.")
             return
 
-        # Load data
+        # Load SPGlobal and Urgewald data
         sp_df = load_spglobal(sp_file, sp_sheet)
         if sp_df.empty:
             st.warning("SPGlobal data is empty or not loaded.")
             return
         sp_df = make_columns_unique(sp_df)
-
+        
         ur_df = load_urgewald(ur_file, ur_sheet)
         if ur_df.empty:
             st.warning("Urgewald data is empty or not loaded.")
             return
         ur_df = make_columns_unique(ur_df)
 
-        # Vectorized matching: add normalized keys and mark merged records
+        # Vectorized matching: add normalized key columns and mark merged records
         sp_df, ur_df = vectorized_match(sp_df, ur_df)
 
-        # Unmatched records become "Only" sheets:
+        # Unmatched records become "Only" sheets
         sp_only_df = sp_df[sp_df["Merged"] == False].copy()
         ur_only_df = ur_df[ur_df["Merged"] == False].copy()
-        # For S&P Only, further restrict to those with nonzero Thermal Coal Mining or Generation (Thermal Coal)
+        # For S&P Only, further restrict to those with nonzero values in Thermal Coal Mining or Generation (Thermal Coal)
         sp_only_df = sp_only_df[
             (pd.to_numeric(sp_only_df["Thermal Coal Mining"], errors='coerce').fillna(0) > 0) |
             (pd.to_numeric(sp_only_df["Generation (Thermal Coal)"], errors='coerce').fillna(0) > 0)
         ].copy()
 
-        # Prepare parameters for threshold filtering
+        # Prepare threshold parameters
         params = {
             "mining_coal_rev_threshold": mining_coal_rev_threshold,
             "exclude_mining_revenue": exclude_mining_revenue,
@@ -404,14 +400,15 @@ def main():
             "exclude_services_rev": exclude_services_rev,
             "expansions_global": expansions_global
         }
+        # Apply threshold filtering to unmatched sets
         filtered_sp_only = apply_thresholds(sp_only_df.copy(), params)
         filtered_ur_only = apply_thresholds(ur_only_df.copy(), params)
 
-        # Keep only retained companies (i.e. not excluded) for the output sheets
+        # For output file, only include retained companies (not excluded) in the "Only" sheets
         sp_retained = filtered_sp_only[filtered_sp_only["Excluded"] == False].copy()
         ur_retained = filtered_ur_only[filtered_ur_only["Excluded"] == False].copy()
 
-        # Create Excluded Companies sheet: apply filtering on full datasets and take all excluded records
+        # Also, produce an Excluded Companies sheet from the full datasets:
         full_filtered_sp = apply_thresholds(sp_df.copy(), params)
         full_filtered_ur = apply_thresholds(ur_df.copy(), params)
         excluded_sp = full_filtered_sp[full_filtered_sp["Excluded"] == True].copy()
@@ -424,9 +421,9 @@ def main():
         excluded_final = reorder_for_excel(excluded_final)
 
         # Write output to Excel with three sheets:
-        # "S&P Only" (retained unmatched SPGlobal records),
-        # "Urgewald Only" (retained unmatched Urgewald records),
-        # "Excluded Companies" (all excluded records from full datasets)
+        # "S&P Only": retained unmatched SPGlobal records,
+        # "Urgewald Only": retained unmatched Urgewald records,
+        # "Excluded Companies": all excluded companies from full datasets.
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             sp_retained.to_excel(writer, sheet_name="S&P Only", index=False)
@@ -439,7 +436,6 @@ def main():
         st.write(f"Urgewald Only (Retained, Unmatched): {len(ur_retained)}")
         st.write(f"Excluded Companies (All): {len(excluded_final)}")
         st.write(f"Run Time: {elapsed:.2f} seconds")
-
         st.download_button(
             label="Download Filtered Results",
             data=output.getvalue(),
