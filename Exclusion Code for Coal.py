@@ -352,29 +352,30 @@ def main():
     ur_file = st.sidebar.file_uploader("Upload Urgewald Excel file", type=["xlsx"])
     st.sidebar.markdown("---")
 
-    # Sidebar: Mining Thresholds (SPGlobal – Metallurgical removed)
+    # Sidebar: Mining Thresholds
     with st.sidebar.expander("Mining Thresholds", expanded=True):
-        exclude_mining_revenue = st.checkbox("Exclude if coal revenue > threshold? (Mining)", value=True)
+        exclude_thermal_coal_mining = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold ", value=True)
+        thermal_coal_mining_threshold = st.number_input("Max allowed Thermal Coal Mining (%)", value=5.0)
+        exclude_mining_revenue = st.checkbox("S&P: Exclude if thermal coal revenue > threshold", value=False)
         mining_coal_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=15.0)
-        exclude_mining_prod_mt = st.checkbox("Exclude if >10MT indicated?", value=True)
+        exclude_mining_prod_mt = st.checkbox("Exclude if > MT threshold", value=True)
         mining_prod_mt_threshold = st.number_input("Mining: Max production (MT)", value=10.0)
-        exclude_thermal_coal_mining = st.checkbox("Exclude if Thermal Coal Mining > threshold?", value=False)
-        thermal_coal_mining_threshold = st.number_input("Max allowed Thermal Coal Mining (%)", value=20.0)
+        
 
     # Sidebar: Power Thresholds
     with st.sidebar.expander("Power Thresholds", expanded=True):
-        exclude_power_revenue = st.checkbox("Exclude if coal revenue > threshold? (Power)", value=True)
+        exclude_generation_thermal = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold", value=True)
+        generation_thermal_threshold = st.number_input("Max allowed revenue from Generation (Thermal Coal) (%)", value=20.0)
+        exclude_power_revenue = st.checkbox("S&P: Exclude if thermal coal revenue > threshold ", value=False)
         power_coal_rev_threshold = st.number_input("Power: Max coal revenue (%)", value=20.0)
-        exclude_power_prod_percent = st.checkbox("Exclude if coal power production > threshold?", value=True)
+        exclude_power_prod_percent = st.checkbox("Exclude if > % production threshold", value=True)
         power_prod_threshold_percent = st.number_input("Max coal power production (%)", value=20.0)
-        exclude_capacity_mw = st.checkbox("Exclude if installed capacity > threshold?", value=True)
+        exclude_capacity_mw = st.checkbox("Exclude if > capacity (MW) threshold", value=True)
         capacity_threshold_mw = st.number_input("Max installed capacity (MW)", value=10000.0)
-        exclude_generation_thermal = st.checkbox("Exclude if Generation (Thermal Coal) > threshold?", value=False)
-        generation_thermal_threshold = st.number_input("Max allowed Generation (Thermal Coal) (%)", value=20.0)
 
     # Sidebar: Services Thresholds
     with st.sidebar.expander("Services Thresholds", expanded=False):
-        exclude_services_rev = st.checkbox("Exclude if services revenue > threshold?", value=False)
+        exclude_services_rev = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold", value=False)
         services_rev_threshold = st.number_input("Services: Max coal revenue (%)", value=10.0)
 
     # Sidebar: Global Expansion
