@@ -49,9 +49,8 @@ def fuzzy_rename_columns(df, rename_map):
 ################################################
 def reorder_for_excel_custom(df, desired_order):
     """
-    Ensure that the DataFrame contains the columns in desired_order.
-    For any column missing, add it as an empty column.
-    Then return the DataFrame with columns in that order.
+    Ensure the DataFrame has columns in the desired order.
+    For any column missing, add it as empty.
     """
     df = df.copy()
     for col in desired_order:
@@ -120,7 +119,6 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
         # Filter header: remove any column equal to "parent company"
         filtered_header = [col for col in header if str(col).strip().lower() != "parent company"]
         ur_df = full_df.iloc[1:].reset_index(drop=True)
-        # Keep only columns whose header is not "parent company"
         ur_df = ur_df.loc[:, header.str.strip().str.lower() != "parent company"]
         ur_df.columns = filtered_header
         ur_df = make_columns_unique(ur_df)
@@ -146,7 +144,7 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
         return pd.DataFrame()
 
 ################################################
-# 6. NORMALIZE KEYS FOR MERGING
+# 6. NORMALIZE KEYS FOR MATCHING
 ################################################
 def normalize_key(s):
     s = s.lower()
@@ -173,56 +171,67 @@ def unify_bbticker(r):
     return normalize_key(str(r.get("BB Ticker", "")))
 
 ################################################
-# 7. MERGE URGEWALD INTO SPGLOBAL (Optimized with Dictionaries)
+# 7. VECTORIZED MATCHING (Require at least 2 keys to match)
 ################################################
-def merge_ur_into_sp(sp_df, ur_df):
-    sp_records = sp_df.to_dict("records")
-    for rec in sp_records:
-        rec["Merged"] = False
-    name_dict = {}
-    isin_dict = {}
-    lei_dict = {}
-    bbticker_dict = {}
-    for i, rec in enumerate(sp_records):
-        n = unify_name(rec)
-        if n:
-            name_dict.setdefault(n, []).append(i)
-        iis = unify_isin(rec)
-        if iis:
-            isin_dict.setdefault(iis, []).append(i)
-        l = unify_lei(rec)
-        if l:
-            lei_dict.setdefault(l, []).append(i)
-        bt = unify_bbticker(rec)
-        if bt:
-            bbticker_dict.setdefault(bt, []).append(i)
-    merged_records = sp_records.copy()
-    ur_only_records = []
-    for _, ur_row in ur_df.iterrows():
-        n = unify_name(ur_row)
-        iis = unify_isin(ur_row)
-        l = unify_lei(ur_row)
-        bt = unify_bbticker(ur_row)
-        indices = set()
-        if n and n in name_dict:
-            indices.update(name_dict[n])
-        if iis and iis in isin_dict:
-            indices.update(isin_dict[iis])
-        if l and l in lei_dict:
-            indices.update(lei_dict[l])
-        if bt and bt in bbticker_dict:
-            indices.update(bbticker_dict[bt])
-        if indices:
-            index = list(indices)[0]
-            for k, v in ur_row.items():
-                if (k not in merged_records[index]) or (merged_records[index][k] is None) or (str(merged_records[index][k]).strip() == ""):
-                    merged_records[index][k] = v
-            merged_records[index]["Merged"] = True
-        else:
-            ur_only_records.append(ur_row.to_dict())
-    merged_df = pd.DataFrame(merged_records)
-    ur_only_df = pd.DataFrame(ur_only_records)
-    return merged_df, ur_only_df
+def vectorized_match(sp_df, ur_df):
+    # Add normalized key columns for SPGlobal
+    sp_df["norm_name"] = sp_df["SP_ENTITY_NAME"].astype(str).apply(normalize_key)
+    sp_df["norm_isin"] = sp_df["SP_ISIN"].astype(str).apply(normalize_key)
+    sp_df["norm_lei"]  = sp_df["SP_LEI"].astype(str).apply(normalize_key)
+    if "BB Ticker" in sp_df.columns:
+        sp_df["norm_bbticker"] = sp_df["BB Ticker"].astype(str).apply(normalize_key)
+    else:
+        sp_df["norm_bbticker"] = ""
+    # Add normalized key columns for Urgewald
+    ur_df["norm_name"] = ur_df["Company"].astype(str).apply(normalize_key)
+    ur_df["norm_isin"] = ur_df["ISIN equity"].astype(str).apply(normalize_key)
+    ur_df["norm_lei"]  = ur_df["LEI"].astype(str).apply(normalize_key)
+    if "BB Ticker" in ur_df.columns:
+        ur_df["norm_bbticker"] = ur_df["BB Ticker"].astype(str).apply(normalize_key)
+    else:
+        ur_df["norm_bbticker"] = ""
+    # Create sets for Urgewald keys
+    ur_names = set(ur_df["norm_name"])
+    ur_isins = set(ur_df["norm_isin"])
+    ur_leis = set(ur_df["norm_lei"])
+    ur_bbtickers = set(ur_df["norm_bbticker"])
+    def match_count(row):
+        count = 0
+        if row["norm_name"] and row["norm_name"] in ur_names:
+            count += 1
+        if row["norm_isin"] and row["norm_isin"] in ur_isins:
+            count += 1
+        if row["norm_lei"] and row["norm_lei"] in ur_leis:
+            count += 1
+        if row["norm_bbticker"] and row["norm_bbticker"] in ur_bbtickers:
+            count += 1
+        return count
+    sp_df["match_count"] = sp_df.apply(match_count, axis=1)
+    sp_df["Merged"] = sp_df["match_count"] >= 2
+
+    # For Urgewald, create sets from SPGlobal keys
+    sp_names = set(sp_df["norm_name"])
+    sp_isins = set(sp_df["norm_isin"])
+    sp_leis = set(sp_df["norm_lei"])
+    sp_bbtickers = set(sp_df["norm_bbticker"])
+    def match_count_ur(row):
+        count = 0
+        if row["norm_name"] and row["norm_name"] in sp_names:
+            count += 1
+        if row["norm_isin"] and row["norm_isin"] in sp_isins:
+            count += 1
+        if row["norm_lei"] and row["norm_lei"] in sp_leis:
+            count += 1
+        if row["norm_bbticker"] and row["norm_bbticker"] in sp_bbtickers:
+            count += 1
+        return count
+    ur_df["match_count"] = ur_df.apply(match_count_ur, axis=1)
+    ur_df["Merged"] = ur_df["match_count"] >= 2
+
+    for col in ["norm_name", "norm_isin", "norm_lei", "norm_bbticker", "match_count"]:
+        sp_df.drop(columns=[col], inplace=True)
+        ur_df.drop(columns=[col], inplace=True)
+    return sp_df, ur_df
 
 ################################################
 # 8. FILTER COMPANIES (Thresholds & Exclusion Logic)
@@ -339,7 +348,6 @@ def main():
         expansions_global = st.multiselect("Exclude if expansion text contains any of these", expansions_possible, default=[], key="global1")
 
     st.sidebar.markdown("---")
-
     start_time = time.time()
 
     if st.sidebar.button("Run", key="run_button"):
@@ -375,23 +383,13 @@ def main():
 
         sp_df = add_normalized_keys(sp_df.copy(), "sp")
         ur_df = add_normalized_keys(ur_df.copy(), "ur")
-        sp_df["Merged"] = sp_df["norm_name"].isin(ur_df["norm_name"]) | \
-                          sp_df["norm_isin"].isin(ur_df["norm_isin"]) | \
-                          sp_df["norm_lei"].isin(ur_df["norm_lei"]) | \
-                          sp_df["norm_bbticker"].isin(ur_df["norm_bbticker"])
-        ur_df["Merged"] = ur_df["norm_name"].isin(sp_df["norm_name"]) | \
-                          ur_df["norm_isin"].isin(sp_df["norm_isin"]) | \
-                          ur_df["norm_lei"].isin(sp_df["norm_lei"]) | \
-                          ur_df["norm_bbticker"].isin(sp_df["norm_bbticker"])
-        for col in ["norm_name", "norm_isin", "norm_lei", "norm_bbticker"]:
-            sp_df.drop(columns=[col], inplace=True)
-            ur_df.drop(columns=[col], inplace=True)
+        sp_df, ur_df = vectorized_match(sp_df, ur_df)
 
         sp_only_df = sp_df[sp_df["Merged"] == False].copy()
         ur_only_df = ur_df[ur_df["Merged"] == False].copy()
         if "Merged" in sp_only_df.columns:
             sp_only_df.drop(columns=["Merged"], inplace=True)
-        # For S&P Only, further restrict to records with nonzero Thermal Coal Mining or Generation (Thermal Coal)
+        # For S&P Only, restrict to records with nonzero Thermal Coal Mining or Generation (Thermal Coal)
         sp_only_df = sp_only_df[
             (pd.to_numeric(sp_only_df["Thermal Coal Mining"], errors='coerce').fillna(0) > 0) |
             (pd.to_numeric(sp_only_df["Generation (Thermal Coal)"], errors='coerce').fillna(0) > 0)
@@ -493,7 +491,6 @@ def main():
         excluded_ur = ur_df[ur_df["Excluded"] == True].copy()
         excluded_final = pd.concat([excluded_sp, excluded_ur], ignore_index=True)
 
-        # Adjust output columns as specified
         output_cols = ["SP_ENTITY_NAME", "SP_ENTITY_ID", "SP_COMPANY_ID", "SP_ISIN", "SP_LEI",
                        "Coal Industry Sector", "U_Company", ">10MT / >5GW",
                        "Installed Coal Power Capacity (MW)", "Coal Share of Power Production",
