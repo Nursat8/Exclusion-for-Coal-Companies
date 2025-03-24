@@ -430,13 +430,17 @@ def main():
             if source == "sp":
                 df["norm_name"] = df["SP_ENTITY_NAME"].astype(str).apply(normalize_key)
                 df["norm_isin"] = df["SP_ISIN"].astype(str).apply(normalize_key)
-                df["norm_lei"] = df["SP_LEI"].astype(str).apply(normalize_key)
+                df["norm_lei"]  = df["SP_LEI"].astype(str).apply(normalize_key)
             else:
                 df["norm_name"] = df["Company"].astype(str).apply(normalize_key)
                 df["norm_isin"] = df["ISIN equity"].astype(str).apply(normalize_key)
-                df["norm_lei"] = df["LEI"].astype(str).apply(normalize_key)
+                df["norm_lei"]  = df["LEI"].astype(str).apply(normalize_key)
+            # Ensure "BB Ticker" column exists; if not, create it as empty
+            if "BB Ticker" not in df.columns:
+                df["BB Ticker"] = ""
             df["norm_bbticker"] = df["BB Ticker"].astype(str).apply(normalize_key)
             return df
+
 
         sp_df = add_normalized_keys(sp_df.copy(), "sp")
         ur_df = add_normalized_keys(ur_df.copy(), "ur")
