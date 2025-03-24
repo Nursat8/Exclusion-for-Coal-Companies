@@ -529,11 +529,21 @@ def main():
                         break
             return pd.Series([len(reasons) > 0, "; ".join(reasons)], index=["Excluded", "Exclusion Reasons"])
         filtered_sp_only = sp_only_df.apply(lambda row: compute_exclusion(row, **params), axis=1)
-        sp_only_df["Excluded"] = filtered_sp_only["Excluded"]
-        sp_only_df["Exclusion Reasons"] = filtered_sp_only["Exclusion Reasons"]
+        if filtered_sp_only.empty:
+            sp_only_df["Excluded"] = False
+            sp_only_df["Exclusion Reasons"] = ""
+        else:
+            sp_only_df["Excluded"] = filtered_sp_only["Excluded"]
+            sp_only_df["Exclusion Reasons"] = filtered_sp_only["Exclusion Reasons"]
+
         filtered_ur_only = ur_only_df.apply(lambda row: compute_exclusion(row, **params), axis=1)
-        ur_only_df["Excluded"] = filtered_ur_only["Excluded"]
-        ur_only_df["Exclusion Reasons"] = filtered_ur_only["Exclusion Reasons"]
+        if filtered_ur_only.empty:
+            ur_only_df["Excluded"] = False
+            ur_only_df["Exclusion Reasons"] = ""
+        else:
+            ur_only_df["Excluded"] = filtered_ur_only["Excluded"]
+            ur_only_df["Exclusion Reasons"] = filtered_ur_only["Exclusion Reasons"]
+
 
         # For output, only include retained companies (not excluded) from the unmatched sets.
         sp_retained = sp_only_df[sp_only_df["Excluded"] == False].copy()
