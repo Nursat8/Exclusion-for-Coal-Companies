@@ -66,15 +66,18 @@ def load_spglobal(file, sheet_name="Sheet1"):
         wb = openpyxl.load_workbook(file, data_only=True)
         ws = wb[sheet_name]
         data = list(ws.values)
-        if len(data) < 6:
+        
+        # First, convert the entire sheet to a DataFrame
+        full_df = pd.DataFrame(data)
+        
+        # Then check row count AFTER we define full_df
+        if len(full_df) < 6:
             raise ValueError("SPGlobal file does not have enough rows.")
+
+        # Now we can safely reference full_df
         row5 = full_df.iloc[4].fillna("")
         row6 = full_df.iloc[5].fillna("")
 
-        # Actually read them from data
-        full_df = pd.DataFrame(data)
-        row5 = full_df.iloc[4].fillna("")
-        row6 = full_df.iloc[5].fillna("")
         final_cols = []
         for i in range(full_df.shape[1]):
             top = str(row5[i]).strip()
@@ -84,10 +87,14 @@ def load_spglobal(file, sheet_name="Sheet1"):
                 combined = (combined + " " + bot).strip()
             final_cols.append(combined)
 
+        # The data rows start at row index 6
         sp_df = full_df.iloc[6:].reset_index(drop=True)
         sp_df.columns = final_cols
+
+        # Then do your rename/cleanup as needed
         sp_df = make_columns_unique(sp_df)
 
+        # Example rename map (adjust to your real usage)
         rename_map_sp = {
             "SP_ENTITY_NAME":  ["sp entity name", "s&p entity name", "entity name"],
             "SP_ENTITY_ID":    ["sp entity id", "entity id"],
@@ -106,9 +113,11 @@ def load_spglobal(file, sheet_name="Sheet1"):
         sp_df = fuzzy_rename_columns(sp_df, rename_map_sp)
         sp_df = sp_df.astype(object)
         return sp_df
+
     except Exception as e:
         st.error(f"Error loading SPGlobal: {e}")
         return pd.DataFrame()
+
 
 ##############################################
 # 5. LOAD URGEWALD (SINGLE HEADER)
