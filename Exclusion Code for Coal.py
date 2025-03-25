@@ -355,7 +355,7 @@ def main():
         thermal_coal_mining_threshold = st.number_input("Max allowed Thermal Coal Mining revenue (%)", value=5.0, key="mining2")
         exclude_mining_revenue = st.checkbox("SP: Exclude if thermal coal revenue > threshold", value=False, key="mining3")
         mining_coal_rev_threshold = st.number_input("Mining: Max coal revenue (%)", value=15.0, key="mining4")
-        exclude_mining_prod_mt = st.checkbox("Exclude if >10MT indicated?", value=True, key="mining5")
+        exclude_mining_prod_mt = st.checkbox("Exclude if >MT indicated?", value=True, key="mining5")
         mining_prod_mt_threshold = st.number_input("Mining: Max production (MT)", value=10.0, key="mining6")
 
     # Sidebar: Power Thresholds
