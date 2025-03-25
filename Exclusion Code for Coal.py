@@ -36,7 +36,7 @@ def fuzzy_rename_columns(df, rename_map):
         for col in df.columns:
             if col in used_cols:
                 continue
-            # Skip if final_name == "Company" and col is "Parent Company"
+            # Skip 'Parent Company' => 'Company'
             if final_name == "Company" and col.strip().lower() == "parent company":
                 continue
             if any(p.lower().strip() in col.lower() for p in patterns):
@@ -208,7 +208,9 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
         else:
             ur_not_merged.append(ur_row)
     
-    sp_df["Merged"] = sp_df.get("Merged", False)
+    # If "Merged" doesn't exist, create it
+    if "Merged" not in sp_df.columns:
+        sp_df["Merged"] = False
     merged_df = sp_df.copy()
     ur_only_df = pd.DataFrame(ur_not_merged)
 
@@ -219,6 +221,10 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
     for c in ["norm_isin","norm_lei","norm_company"]:
         if c in ur_only_df.columns:
             ur_only_df.drop(columns=[c], inplace=True)
+
+    # Also ensure "Merged" in ur_only_df
+    if "Merged" not in ur_only_df.columns:
+        ur_only_df["Merged"] = False
 
     return merged_df, ur_only_df
 
@@ -235,19 +241,19 @@ def compute_exclusion(row, **params):
     #   - Power => "Coal Share of Revenue" => fraction => compare with ur_power_threshold
     #   - Also check capacity, power production, >10mt, etc
     try:
-        sp_mining_val = float(row.get("Thermal Coal Mining", 0))  # fraction for S&P mining
+        sp_mining_val = float(row.get("Thermal Coal Mining", 0))
     except:
         sp_mining_val = 0.0
     try:
-        sp_power_val = float(row.get("Generation (Thermal Coal)", 0))  # fraction for S&P power
+        sp_power_val = float(row.get("Generation (Thermal Coal)", 0))
     except:
         sp_power_val = 0.0
     try:
-        ur_coal_rev = float(row.get("Coal Share of Revenue", 0))  # fraction for UR
+        ur_coal_rev = float(row.get("Coal Share of Revenue", 0))
     except:
         ur_coal_rev = 0.0
     try:
-        ur_coal_power = float(row.get("Coal Share of Power Production", 0))  # fraction for UR
+        ur_coal_power = float(row.get("Coal Share of Power Production", 0))
     except:
         ur_coal_power = 0.0
     try:
@@ -255,48 +261,37 @@ def compute_exclusion(row, **params):
     except:
         ur_installed_cap = 0.0
     
-    # >10MT check
     prod_str = str(row.get(">10MT / >5GW", "")).lower()
-    # expansion check
-    expansion_str = str(row.get("expansion","")).lower()
-    # is S&P or UR
+    expansion_str = str(row.get("expansion", "")).lower()
     is_sp = bool(str(row.get("SP_ENTITY_NAME","")).strip())
     sector = str(row.get("Coal Industry Sector","")).lower()
 
     if is_sp:
         # S&P
         if "mining" in sector:
-            # S&P mining => sp_mining_val * 100 vs sp_mining_threshold
             if params["sp_mining_checkbox"] and (sp_mining_val * 100) > params["sp_mining_threshold"]:
                 reasons.append(f"SP Mining revenue {sp_mining_val*100:.2f}% > {params['sp_mining_threshold']}%")
         if ("power" in sector or "generation" in sector):
-            # S&P power => sp_power_val * 100 vs sp_power_threshold
             if params["sp_power_checkbox"] and (sp_power_val * 100) > params["sp_power_threshold"]:
                 reasons.append(f"SP Power revenue {sp_power_val*100:.2f}% > {params['sp_power_threshold']}%")
     else:
         # UR
         if "mining" in sector:
-            # UR mining => ur_coal_rev * 100 vs ur_mining_threshold
             if params["ur_mining_checkbox"] and (ur_coal_rev * 100) > params["ur_mining_threshold"]:
                 reasons.append(f"UR Mining revenue {ur_coal_rev*100:.2f}% > {params['ur_mining_threshold']}%")
-            # Exclude if >10MT
             if params["exclude_mt"] and (">10mt" in prod_str):
                 reasons.append(f">10MT indicated (threshold {params['mt_threshold']}MT)")
         if ("power" in sector or "generation" in sector):
-            # UR power => ur_coal_rev * 100 vs ur_power_threshold
             if params["ur_power_checkbox"] and (ur_coal_rev * 100) > params["ur_power_threshold"]:
                 reasons.append(f"UR Power revenue {ur_coal_rev*100:.2f}% > {params['ur_power_threshold']}%")
-            # exclude capacity
             if params["exclude_capacity"] and (ur_installed_cap > params["capacity_threshold"]):
                 reasons.append(f"Installed capacity {ur_installed_cap:.2f}MW > {params['capacity_threshold']}MW")
-            # exclude power production => ur_coal_power
             if params["exclude_power_prod"] and (ur_coal_power * 100) > params["power_prod_threshold"]:
                 reasons.append(f"Coal power production {ur_coal_power*100:.2f}% > {params['power_prod_threshold']}%")
-        # UR Level 2 => all UR
+        # UR Exclusion Level 2 => all UR
         if params["ur_level2_checkbox"] and (ur_coal_rev * 100) > params["ur_level2_threshold"]:
             reasons.append(f"UR Level 2 revenue {ur_coal_rev*100:.2f}% > {params['ur_level2_threshold']}%")
 
-    # expansions
     if params["expansion_exclude"]:
         for kw in params["expansion_exclude"]:
             if kw.lower() in expansion_str:
@@ -405,20 +400,30 @@ def main():
         ur_df = make_columns_unique(ur_df)
         
         # 3. MERGE
-        sp_df, ur_df = merge_ur_into_sp_opt(sp_df, ur_df)
+        merged_sp, unmatched_ur = merge_ur_into_sp_opt(sp_df, ur_df)
         
-        # 4. SPLIT
-        merged_sp = sp_df[sp_df.get("Merged",False) == True].copy()
-        unmatched_sp = sp_df[sp_df.get("Merged",False) == False].copy()
-        unmatched_ur = ur_df[ur_df.get("Merged",False) == False].copy()
-        for group in [merged_sp, unmatched_sp, unmatched_ur]:
-            if "Merged" in group.columns:
-                group.drop(columns=["Merged"], inplace=True)
+        # 4. If "Merged" not in merged_sp or unmatched_ur, create it
+        if "Merged" not in merged_sp.columns:
+            merged_sp["Merged"] = False
+        if "Merged" not in unmatched_ur.columns:
+            unmatched_ur["Merged"] = False
+
+        # Split
+        sp_merged   = merged_sp[ merged_sp["Merged"] == True ].copy()
+        sp_unmerged = merged_sp[ merged_sp["Merged"] == False ].copy()
+        if "Merged" in sp_merged.columns:
+            sp_merged.drop(columns=["Merged"], inplace=True)
+        if "Merged" in sp_unmerged.columns:
+            sp_unmerged.drop(columns=["Merged"], inplace=True)
         
-        # 5. S&P Only => unmatched SP with nonzero "Thermal Coal Mining" or "Generation (Thermal Coal)"
-        sp_only = unmatched_sp[
-            (pd.to_numeric(unmatched_sp.get("Thermal Coal Mining","0"), errors='coerce').fillna(0) > 0) |
-            (pd.to_numeric(unmatched_sp.get("Generation (Thermal Coal)","0"), errors='coerce').fillna(0) > 0)
+        unmatched_ur = unmatched_ur[ unmatched_ur["Merged"] == False ].copy()
+        if "Merged" in unmatched_ur.columns:
+            unmatched_ur.drop(columns=["Merged"], inplace=True)
+
+        # 5. S&P Only => sp_unmerged with nonzero in "Thermal Coal Mining" or "Generation (Thermal Coal)"
+        sp_only = sp_unmerged[
+            (pd.to_numeric(sp_unmerged.get("Thermal Coal Mining","0"), errors='coerce').fillna(0) > 0) |
+            (pd.to_numeric(sp_unmerged.get("Generation (Thermal Coal)","0"), errors='coerce').fillna(0) > 0)
         ].copy()
         
         # 6. THRESHOLD PARAMETERS
@@ -507,29 +512,29 @@ def main():
             
             return pd.Series([len(reasons) > 0, "; ".join(reasons)], index=["Excluded","Exclusion Reasons"])
         
-        merged_filtered = merged_sp.apply(lambda row: compute_exclusion(row, **params), axis=1)
-        merged_sp["Excluded"] = merged_filtered["Excluded"]
-        merged_sp["Exclusion Reasons"] = merged_filtered["Exclusion Reasons"]
+        # Filter
+        sp_merged_filtered = sp_merged.apply(lambda row: compute_exclusion(row, **params), axis=1)
+        sp_merged["Excluded"] = sp_merged_filtered["Excluded"]
+        sp_merged["Exclusion Reasons"] = sp_merged_filtered["Exclusion Reasons"]
         
-        sp_filtered = sp_only.apply(lambda row: compute_exclusion(row, **params), axis=1)
-        sp_only["Excluded"] = sp_filtered["Excluded"]
-        sp_only["Exclusion Reasons"] = sp_filtered["Exclusion Reasons"]
+        sp_only_filtered = sp_only.apply(lambda row: compute_exclusion(row, **params), axis=1)
+        sp_only["Excluded"] = sp_only_filtered["Excluded"]
+        sp_only["Exclusion Reasons"] = sp_only_filtered["Exclusion Reasons"]
         
-        ur_filtered = unmatched_ur.apply(lambda row: compute_exclusion(row, **params), axis=1)
-        unmatched_ur["Excluded"] = ur_filtered["Excluded"]
-        unmatched_ur["Exclusion Reasons"] = ur_filtered["Exclusion Reasons"]
+        unmatched_ur_filtered = unmatched_ur.apply(lambda row: compute_exclusion(row, **params), axis=1)
+        unmatched_ur["Excluded"] = unmatched_ur_filtered["Excluded"]
+        unmatched_ur["Exclusion Reasons"] = unmatched_ur_filtered["Exclusion Reasons"]
         
         # 8. Build output
         excluded_final = pd.concat([
-            merged_sp[merged_sp["Excluded"] == True],
+            sp_merged[sp_merged["Excluded"] == True],
             sp_only[sp_only["Excluded"] == True],
             unmatched_ur[unmatched_ur["Excluded"] == True]
         ], ignore_index=True)
-        retained_merged = merged_sp[merged_sp["Excluded"] == False].copy()
+        retained_merged = sp_merged[sp_merged["Excluded"] == False].copy()
         sp_retained = sp_only[sp_only["Excluded"] == False].copy()
         ur_retained = unmatched_ur[unmatched_ur["Excluded"] == False].copy()
         
-        # RENAME UR columns
         def rename_ur_cols(df):
             mapping = {
                 "Company": "U_Company",
@@ -569,7 +574,6 @@ def main():
             excluded_ur = add_empty_sp_columns(excluded_ur)
         excluded_final = pd.concat([excluded_sp, excluded_ur], ignore_index=True)
         
-        # 9. EXACT final columns
         final_cols = [
             "SP_ENTITY_NAME","SP_ENTITY_ID","SP_COMPANY_ID","SP_ISIN","SP_LEI",
             "Coal Industry Sector","U_Company",">10MT / >5GW","Installed Coal Power Capacity (MW)",
@@ -590,7 +594,7 @@ def main():
         sp_retained = finalize_cols(sp_retained)
         ur_retained = finalize_cols(ur_retained)
         
-        # 10. Write output in memory
+        # 10. Write output
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             excluded_final.to_excel(writer, sheet_name="Excluded Companies", index=False)
