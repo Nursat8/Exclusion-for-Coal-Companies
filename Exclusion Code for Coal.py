@@ -19,6 +19,7 @@ def to_float(val):
 # 1. MAKE COLUMNS UNIQUE
 ##############################################
 def make_columns_unique(df):
+    """Append _1, _2, etc. to duplicate column names."""
     seen = {}
     new_cols = []
     for col in df.columns:
@@ -62,6 +63,10 @@ def normalize_key(s):
 # 4. LOAD SPGLOBAL (MULTI-HEADER)
 ##############################################
 def load_spglobal(file, sheet_name="Sheet1"):
+    """
+    Reads an SPGlobal file that has a multi-header row,
+    then normalizes column names with fuzzy_rename_columns.
+    """
     try:
         wb = openpyxl.load_workbook(file, data_only=True)
         ws = wb[sheet_name]
@@ -69,6 +74,8 @@ def load_spglobal(file, sheet_name="Sheet1"):
         full_df = pd.DataFrame(data)
         if len(full_df) < 6:
             raise ValueError("SPGlobal file does not have enough rows.")
+
+        # Row 5 => index 4, row 6 => index 5
         row5 = full_df.iloc[4].fillna("")
         row6 = full_df.iloc[5].fillna("")
         final_cols = []
@@ -79,9 +86,11 @@ def load_spglobal(file, sheet_name="Sheet1"):
             if bot and bot.lower() not in combined.lower():
                 combined = (combined + " " + bot).strip()
             final_cols.append(combined)
+
         sp_df = full_df.iloc[6:].reset_index(drop=True)
         sp_df.columns = final_cols
         sp_df = make_columns_unique(sp_df)
+
         rename_map_sp = {
             "SP_ENTITY_NAME":  ["sp entity name", "s&p entity name", "entity name"],
             "SP_ENTITY_ID":    ["sp entity id", "entity id"],
@@ -108,19 +117,26 @@ def load_spglobal(file, sheet_name="Sheet1"):
 # 5. LOAD URGEWALD (SINGLE HEADER)
 ##############################################
 def load_urgewald(file, sheet_name="GCEL 2024"):
+    """
+    Reads a single-header Urgewald file, ignoring any 'Parent Company' column,
+    then normalizes column names with fuzzy_rename_columns.
+    """
     try:
         wb = openpyxl.load_workbook(file, data_only=True)
         ws = wb[sheet_name]
         data = list(ws.values)
         if len(data) < 1:
             raise ValueError("Urgewald file is empty.")
+
         full_df = pd.DataFrame(data)
         header = full_df.iloc[0].fillna("")
+        # Filter out "parent company"
         filtered_header = [col for col in header if str(col).strip().lower() != "parent company"]
         ur_df = full_df.iloc[1:].reset_index(drop=True)
         ur_df = ur_df.loc[:, header.str.strip().str.lower() != "parent company"]
         ur_df.columns = filtered_header
         ur_df = make_columns_unique(ur_df)
+
         rename_map_ur = {
             "Company":        ["company", "issuer name"],
             "ISIN equity":    ["isin equity", "isin(eq)", "isin eq"],
@@ -163,7 +179,7 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
     ur_df["norm_company"] = ur_df["Company"].astype(str).apply(normalize_key)
 
     dict_isin = {}
-    dict_lei  = {}
+    dict_lei = {}
     dict_name = {}
     for idx, row in sp_df.iterrows():
         if row["norm_isin"]:
@@ -214,19 +230,21 @@ def compute_exclusion(row, **params):
     """
     1) Always check if exclude_mt => if "10mt" in >10MT / >5GW => exclude
     2) Always check if exclude_capacity => if Installed Coal Power Capacity (MW) > threshold => exclude
-    3) Always check if exclude_power_prod => if Coal Share of Power Production > threshold => exclude
-    4) S&P (mining => Thermal Coal Mining), (power => Generation (Thermal Coal)) => revenue thresholds
-    5) UR (Coal Share of Revenue) => mining/power thresholds
-    6) UR Level 2 => all UR => Coal Share of Revenue
+    3) Always check if exclude_power_prod => if (Coal Share of Power Production * 100) > threshold => exclude
+       (We multiply by 100 here because it's stored in decimals in the input file)
+    4) S&P (mining => Thermal Coal Mining), (power => Generation (Thermal Coal)) => revenue thresholds (no multiplication)
+    5) UR (Coal Share of Revenue) => mining/power thresholds (already in %), no multiplication
+    6) UR Level 2 => all UR => Coal Share of Revenue (already in %), no multiplication
     7) expansions
     """
     reasons = []
 
     # Convert relevant columns
-    sp_mining_val = to_float(row.get("Thermal Coal Mining", 0))
-    sp_power_val  = to_float(row.get("Generation (Thermal Coal)", 0))
-    ur_coal_rev   = to_float(row.get("Coal Share of Revenue", 0))
-    ur_coal_power = to_float(row.get("Coal Share of Power Production", 0))
+    sp_mining_val = to_float(row.get("Thermal Coal Mining", 0))  # S&P mining => direct percentage
+    sp_power_val  = to_float(row.get("Generation (Thermal Coal)", 0))  # S&P power => direct percentage
+    ur_coal_rev   = to_float(row.get("Coal Share of Revenue", 0))  # UR => direct percentage
+    # For "Coal Share of Power Production", multiply by 100 if exclude_power_prod is toggled
+    raw_coal_power = to_float(row.get("Coal Share of Power Production", 0))  # stored in decimals
     ur_installed_cap = to_float(row.get("Installed Coal Power Capacity (MW)", 0))
 
     prod_str = str(row.get(">10MT / >5GW","")).strip().lower()
@@ -234,17 +252,19 @@ def compute_exclusion(row, **params):
     is_sp = bool(str(row.get("SP_ENTITY_NAME","")).strip())
     sector = str(row.get("Coal Industry Sector","")).strip().lower()
 
-    # 1) Always check if >10MT
+    # 1) >10MT
     if params["exclude_mt"] and "10mt" in prod_str:
         reasons.append(f">10MT indicated (threshold {params['mt_threshold']}MT)")
 
-    # 2) Always check if capacity threshold
+    # 2) capacity threshold
     if params["exclude_capacity"] and ur_installed_cap > params["capacity_threshold"]:
         reasons.append(f"Installed capacity {ur_installed_cap:.2f}MW > {params['capacity_threshold']}MW")
 
-    # 3) Always check if power production threshold
-    if params["exclude_power_prod"] and ur_coal_power > params["power_prod_threshold"]:
-        reasons.append(f"Coal power production {ur_coal_power:.2f}% > {params['power_prod_threshold']}%")
+    # 3) power production threshold => multiply by 100
+    # The user said "Coal Share of Power Production" is stored in decimals => multiply by 100 for threshold
+    if params["exclude_power_prod"]:
+        if (raw_coal_power * 100) > params["power_prod_threshold"]:
+            reasons.append(f"Coal power production {raw_coal_power*100:.2f}% > {params['power_prod_threshold']}%")
 
     # 4) S&P revenue thresholds
     if is_sp:
