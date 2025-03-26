@@ -179,7 +179,7 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
     ur_df["norm_company"] = ur_df["Company"].astype(str).apply(normalize_key)
 
     dict_isin = {}
-    dict_lei = {}
+    dict_lei  = {}
     dict_name = {}
     for idx, row in sp_df.iterrows():
         if row["norm_isin"]:
@@ -233,40 +233,40 @@ def compute_exclusion(row, **params):
     3) Always check if exclude_power_prod => if (Coal Share of Power Production * 100) > threshold => exclude
        (We multiply by 100 here because it's stored in decimals in the input file)
     4) S&P (mining => Thermal Coal Mining), (power => Generation (Thermal Coal)) => revenue thresholds (no multiplication)
-    5) UR (Coal Share of Revenue) => mining/power thresholds (already in %), no multiplication
+    5) UR (Coal Share of Revenue) => revenue thresholds apply only when the company’s sector is clearly “mining” or clearly “power”
+       For mining: if the sector contains "mining" but NOT "power" or "generation", then apply UR mining threshold.
+       For power: if the sector contains "power" or "generation" but NOT "mining", then apply UR power threshold.
+       (In both cases, the value in "Coal Share of Revenue" is stored as a decimal and thus multiplied by 100.)
     6) UR Level 2 => all UR => Coal Share of Revenue (already in %), no multiplication
     7) expansions
     """
     reasons = []
 
-    # Convert relevant columns
-    sp_mining_val = to_float(row.get("Thermal Coal Mining", 0))  # S&P mining => direct percentage
-    sp_power_val  = to_float(row.get("Generation (Thermal Coal)", 0))  # S&P power => direct percentage
-    ur_coal_rev   = to_float(row.get("Coal Share of Revenue", 0))  # UR => direct percentage
-    # For "Coal Share of Power Production", multiply by 100 if exclude_power_prod is toggled
-    raw_coal_power = to_float(row.get("Coal Share of Power Production", 0))  # stored in decimals
+    sp_mining_val = to_float(row.get("Thermal Coal Mining", 0))
+    sp_power_val  = to_float(row.get("Generation (Thermal Coal)", 0))
+    ur_coal_rev   = to_float(row.get("Coal Share of Revenue", 0))
+    raw_coal_power = to_float(row.get("Coal Share of Power Production", 0))
     ur_installed_cap = to_float(row.get("Installed Coal Power Capacity (MW)", 0))
 
-    prod_str = str(row.get(">10MT / >5GW","")).strip().lower()
-    expansion_str = str(row.get("expansion","")).strip().lower()
-    is_sp = bool(str(row.get("SP_ENTITY_NAME","")).strip())
-    sector = str(row.get("Coal Industry Sector","")).strip().lower()
+    prod_str = str(row.get(">10MT / >5GW", "")).strip().lower()
+    expansion_str = str(row.get("expansion", "")).strip().lower()
+    is_sp = bool(str(row.get("SP_ENTITY_NAME", "")).strip())
+    sector = str(row.get("Coal Industry Sector", "")).strip().lower()
 
-    # 1) >10MT
+    # 1) >10MT check (applies regardless)
     if params["exclude_mt"] and "10mt" in prod_str:
         reasons.append(f">10MT indicated (threshold {params['mt_threshold']}MT)")
 
-    # 2) capacity threshold
+    # 2) Installed capacity check (applies regardless)
     if params["exclude_capacity"] and ur_installed_cap > params["capacity_threshold"]:
         reasons.append(f"Installed capacity {ur_installed_cap:.2f}MW > {params['capacity_threshold']}MW")
 
-    # 3) power production threshold => multiply by 100
-    # The user said "Coal Share of Power Production" is stored in decimals => multiply by 100 for threshold
+    # 3) Coal Share of Power Production check (multiply by 100)
     if params["exclude_power_prod"]:
         if (raw_coal_power * 100) > params["power_prod_threshold"]:
             reasons.append(f"Coal power production {raw_coal_power*100:.2f}% > {params['power_prod_threshold']}%")
 
-    # 4) S&P revenue thresholds
+    # 4) S&P revenue thresholds (applies if SP record)
     if is_sp:
         if "mining" in sector:
             if params["sp_mining_checkbox"] and sp_mining_val > params["sp_mining_threshold"]:
@@ -275,25 +275,27 @@ def compute_exclusion(row, **params):
             if params["sp_power_checkbox"] and sp_power_val > params["sp_power_threshold"]:
                 reasons.append(f"SP Power revenue {sp_power_val:.2f}% > {params['sp_power_threshold']}%")
     else:
-        # 5) UR revenue thresholds
-        if "mining" in sector:
-            if params["ur_mining_checkbox"] and ur_coal_rev > params["ur_mining_threshold"]:
-                reasons.append(f"UR Mining revenue {ur_coal_rev:.2f}% > {params['ur_mining_threshold']}%")
-        if ("power" in sector or "generation" in sector):
-            if params["ur_power_checkbox"] and ur_coal_rev > params["ur_power_threshold"]:
-                reasons.append(f"UR Power revenue {ur_coal_rev:.2f}% > {params['ur_power_threshold']}%")
-        # 6) UR Level 2 => all UR
-        if params["ur_level2_checkbox"] and ur_coal_rev > params["ur_level2_threshold"]:
-            reasons.append(f"UR Level 2 revenue {ur_coal_rev:.2f}% > {params['ur_level2_threshold']}%")
+        # 5) UR revenue thresholds: apply only if sector is clearly mining or clearly power
+        # Check for mining-only: sector contains "mining" but not "power" or "generation"
+        if "mining" in sector and not ("power" in sector or "generation" in sector):
+            if params["ur_mining_checkbox"] and (ur_coal_rev * 100) > params["ur_mining_threshold"]:
+                reasons.append(f"UR Mining revenue {ur_coal_rev*100:.2f}% > {params['ur_mining_threshold']}%")
+        # Check for power-only: sector contains "power" or "generation" but not "mining"
+        elif (("power" in sector or "generation" in sector) and "mining" not in sector):
+            if params["ur_power_checkbox"] and (ur_coal_rev * 100) > params["ur_power_threshold"]:
+                reasons.append(f"UR Power revenue {ur_coal_rev*100:.2f}% > {params['ur_power_threshold']}%")
+        # 6) UR Level 2: applied to all UR regardless of sector
+        if params["ur_level2_checkbox"] and (ur_coal_rev * 100) > params["ur_level2_threshold"]:
+            reasons.append(f"UR Level 2 revenue {ur_coal_rev*100:.2f}% > {params['ur_level2_threshold']}%")
 
-    # 7) expansions
+    # 7) Expansions check
     if params["expansion_exclude"]:
         for kw in params["expansion_exclude"]:
             if kw.lower() in expansion_str:
                 reasons.append(f"Expansion matched '{kw}'")
                 break
 
-    return pd.Series([bool(reasons), "; ".join(reasons)], index=["Excluded","Exclusion Reasons"])
+    return pd.Series([bool(reasons), "; ".join(reasons)], index=["Excluded", "Exclusion Reasons"])
 
 ##############################################
 # 8. STREAMLIT MAIN
@@ -310,19 +312,27 @@ def main():
     ur_file = st.sidebar.file_uploader("Upload Urgewald Excel file", type=["xlsx"])
     st.sidebar.markdown("---")
 
-    # Mining
+    # ---------------------------
+    # MINING
+    # ---------------------------
     with st.sidebar.expander("Mining", expanded=True):
+        # URGEWALD threshold first
         ur_mining_checkbox = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold (mining)", value=False)
         ur_mining_threshold = st.number_input("UR Mining: Level 1 threshold (%)", value=5.0)
+        # THEN S&P threshold
         sp_mining_checkbox = st.checkbox("S&P: Exclude if thermal coal revenue > threshold (mining)", value=True)
         sp_mining_threshold = st.number_input("S&P Mining Threshold (%)", value=5.0)
         exclude_mt = st.checkbox("Exclude if > MT threshold", value=True)
         mt_threshold = st.number_input("Max production (MT) threshold", value=10.0)
 
-    # Power
+    # ---------------------------
+    # POWER
+    # ---------------------------
     with st.sidebar.expander("Power", expanded=True):
+        # URGEWALD threshold first
         ur_power_checkbox = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold (power)", value=False)
         ur_power_threshold = st.number_input("UR Power: Level 1 threshold (%)", value=20.0)
+        # THEN S&P threshold
         sp_power_checkbox = st.checkbox("S&P: Exclude if thermal coal revenue > threshold (power)", value=True)
         sp_power_threshold = st.number_input("S&P Power Threshold (%)", value=20.0)
         exclude_power_prod = st.checkbox("Exclude if > % production threshold", value=True)
@@ -331,13 +341,13 @@ def main():
         capacity_threshold = st.number_input("Max installed capacity (MW)", value=10000.0)
 
     # UR Exclusion Level 2
-    with st.sidebar.expander("UR coal revenue Exclusion Level 2", expanded=False):
-        ur_level2_checkbox = st.checkbox("Apply UR coal revenue Level 2 exclusion", value=False)
+    with st.sidebar.expander("UR Exclusion Level 2", expanded=False):
+        ur_level2_checkbox = st.checkbox("Apply UR Level 2 exclusion", value=False)
         ur_level2_threshold = st.number_input("UR Level 2 revenue threshold (%)", value=6.0)
 
     # Expansion
     with st.sidebar.expander("Exclude if expansion plans on business", expanded=False):
-        expansions_possible = ["mining","infrastructure","power","subsidiary of a coal developer"]
+        expansions_possible = ["mining", "infrastructure", "power", "subsidiary of a coal developer"]
         expansion_exclude = st.multiselect("Exclude if expansion text contains any of these", expansions_possible, default=[])
 
     st.sidebar.markdown("---")
@@ -379,8 +389,8 @@ def main():
 
         # S&P Only => from sp_unmerged with nonzero in "Thermal Coal Mining" or "Generation (Thermal Coal)"
         sp_only = sp_unmerged[
-            (pd.to_numeric(sp_unmerged.get("Thermal Coal Mining","0"), errors='coerce').fillna(0) > 0) |
-            (pd.to_numeric(sp_unmerged.get("Generation (Thermal Coal)","0"), errors='coerce').fillna(0) > 0)
+            (pd.to_numeric(sp_unmerged.get("Thermal Coal Mining", "0"), errors='coerce').fillna(0) > 0) |
+            (pd.to_numeric(sp_unmerged.get("Generation (Thermal Coal)", "0"), errors='coerce').fillna(0) > 0)
         ].copy()
 
         # 5) Threshold params
@@ -419,8 +429,8 @@ def main():
                 df["Exclusion Reasons"] = ""
             return df
 
-        sp_merged   = apply_filter(sp_merged)
-        sp_only     = apply_filter(sp_only)
+        sp_merged = apply_filter(sp_merged)
+        sp_only = apply_filter(sp_only)
         ur_unmerged = apply_filter(ur_unmerged)
 
         # 7) Build final sets
@@ -430,16 +440,16 @@ def main():
             ur_unmerged[ur_unmerged["Excluded"] == True]
         ], ignore_index=True)
         retained_merged = sp_merged[sp_merged["Excluded"] == False].copy()
-        sp_retained     = sp_only[sp_only["Excluded"] == False].copy()
-        ur_retained     = ur_unmerged[ur_unmerged["Excluded"] == False].copy()
+        sp_retained = sp_only[sp_only["Excluded"] == False].copy()
+        ur_retained = ur_unmerged[ur_unmerged["Excluded"] == False].copy()
 
         # 8) Final columns
         final_cols = [
-            "SP_ENTITY_NAME","SP_ENTITY_ID","SP_COMPANY_ID","SP_ISIN","SP_LEI",
-            "Coal Industry Sector","Company",">10MT / >5GW","Installed Coal Power Capacity (MW)",
-            "Coal Share of Power Production","Coal Share of Revenue","expansion","Generation (Thermal Coal)",
-            "Thermal Coal Mining","BB Ticker","ISIN equity","LEI",
-            "Excluded","Exclusion Reasons"
+            "SP_ENTITY_NAME", "SP_ENTITY_ID", "SP_COMPANY_ID", "SP_ISIN", "SP_LEI",
+            "Coal Industry Sector", "Company", ">10MT / >5GW", "Installed Coal Power Capacity (MW)",
+            "Coal Share of Power Production", "Coal Share of Revenue", "expansion",
+            "Generation (Thermal Coal)", "Thermal Coal Mining", "BB Ticker", "ISIN equity", "LEI",
+            "Excluded", "Exclusion Reasons"
         ]
         def finalize_cols(df):
             df = df.copy()
@@ -448,10 +458,10 @@ def main():
                     df[c] = ""
             return df[final_cols]
 
-        excluded_final  = finalize_cols(excluded_final)
+        excluded_final = finalize_cols(excluded_final)
         retained_merged = finalize_cols(retained_merged)
-        sp_retained     = finalize_cols(sp_retained)
-        ur_retained     = finalize_cols(ur_retained)
+        sp_retained = finalize_cols(sp_retained)
+        ur_retained = finalize_cols(ur_retained)
 
         # 9) Write Excel
         output = io.BytesIO()
