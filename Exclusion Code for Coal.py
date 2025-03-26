@@ -179,7 +179,7 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
     ur_df["norm_company"] = ur_df["Company"].astype(str).apply(normalize_key)
 
     dict_isin = {}
-    dict_lei = {}
+    dict_lei  = {}
     dict_name = {}
     for idx, row in sp_df.iterrows():
         if row["norm_isin"]:
@@ -239,12 +239,10 @@ def compute_exclusion(row, **params):
     """
     reasons = []
 
-    # Convert relevant columns
-    sp_mining_val = to_float(row.get("Thermal Coal Mining", 0))  # S&P mining => direct percentage
-    sp_power_val  = to_float(row.get("Generation (Thermal Coal)", 0))  # S&P power => direct percentage
-    ur_coal_rev   = to_float(row.get("Coal Share of Revenue", 0))  # UR => direct percentage
-    # For "Coal Share of Power Production", multiply by 100 if exclude_power_prod is toggled
-    raw_coal_power = to_float(row.get("Coal Share of Power Production", 0))  # stored in decimals
+    sp_mining_val = to_float(row.get("Thermal Coal Mining", 0))
+    sp_power_val  = to_float(row.get("Generation (Thermal Coal)", 0))
+    ur_coal_rev   = to_float(row.get("Coal Share of Revenue", 0))
+    raw_coal_power = to_float(row.get("Coal Share of Power Production", 0))
     ur_installed_cap = to_float(row.get("Installed Coal Power Capacity (MW)", 0))
 
     prod_str = str(row.get(">10MT / >5GW","")).strip().lower()
@@ -261,7 +259,6 @@ def compute_exclusion(row, **params):
         reasons.append(f"Installed capacity {ur_installed_cap:.2f}MW > {params['capacity_threshold']}MW")
 
     # 3) power production threshold => multiply by 100
-    # The user said "Coal Share of Power Production" is stored in decimals => multiply by 100 for threshold
     if params["exclude_power_prod"]:
         if (raw_coal_power * 100) > params["power_prod_threshold"]:
             reasons.append(f"Coal power production {raw_coal_power*100:.2f}% > {params['power_prod_threshold']}%")
@@ -310,21 +307,29 @@ def main():
     ur_file = st.sidebar.file_uploader("Upload Urgewald Excel file", type=["xlsx"])
     st.sidebar.markdown("---")
 
-    # Mining
+    # ---------------------------
+    # MINING
+    # ---------------------------
     with st.sidebar.expander("Mining", expanded=True):
-        sp_mining_checkbox = st.checkbox("S&P: Exclude if thermal coal revenue > threshold (mining)", value=True)
-        sp_mining_threshold = st.number_input("S&P Mining Threshold (%)", value=15.0)
+        # URGEWALD FIRST
         ur_mining_checkbox = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold (mining)", value=True)
         ur_mining_threshold = st.number_input("UR Mining: Level 1 threshold (%)", value=5.0)
+        # THEN S&P
+        sp_mining_checkbox = st.checkbox("S&P: Exclude if thermal coal revenue > threshold (mining)", value=True)
+        sp_mining_threshold = st.number_input("S&P Mining Threshold (%)", value=15.0)
         exclude_mt = st.checkbox("Exclude if >10MT indicated", value=True)
         mt_threshold = st.number_input("Max production (MT) threshold", value=10.0)
 
-    # Power
+    # ---------------------------
+    # POWER
+    # ---------------------------
     with st.sidebar.expander("Power", expanded=True):
-        sp_power_checkbox = st.checkbox("S&P: Exclude if thermal coal revenue > threshold (power)", value=True)
-        sp_power_threshold = st.number_input("S&P Power Threshold (%)", value=20.0)
+        # URGEWALD FIRST
         ur_power_checkbox = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold (power)", value=True)
         ur_power_threshold = st.number_input("UR Power: Level 1 threshold (%)", value=20.0)
+        # THEN S&P
+        sp_power_checkbox = st.checkbox("S&P: Exclude if thermal coal revenue > threshold (power)", value=True)
+        sp_power_threshold = st.number_input("S&P Power Threshold (%)", value=20.0)
         exclude_power_prod = st.checkbox("Exclude if > % production threshold", value=True)
         power_prod_threshold = st.number_input("Max coal power production (%)", value=20.0)
         exclude_capacity = st.checkbox("Exclude if > capacity (MW) threshold", value=True)
@@ -379,8 +384,8 @@ def main():
 
         # S&P Only => from sp_unmerged with nonzero in "Thermal Coal Mining" or "Generation (Thermal Coal)"
         sp_only = sp_unmerged[
-            (pd.to_numeric(sp_unmerged.get("Thermal Coal Mining","0"), errors='coerce').fillna(0) > 0) |
-            (pd.to_numeric(sp_unmerged.get("Generation (Thermal Coal)","0"), errors='coerce').fillna(0) > 0)
+            (pd.to_numeric(sp_unmerged.get("Thermal Coal Mining", "0"), errors='coerce').fillna(0) > 0) |
+            (pd.to_numeric(sp_unmerged.get("Generation (Thermal Coal)", "0"), errors='coerce').fillna(0) > 0)
         ].copy()
 
         # 5) Threshold params
