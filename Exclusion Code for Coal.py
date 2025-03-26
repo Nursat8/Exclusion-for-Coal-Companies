@@ -1,4 +1,3 @@
-the code changed so much, do not change anything in the code, just use this code:
 import streamlit as st
 import pandas as pd
 import numpy as np
