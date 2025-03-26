@@ -233,11 +233,11 @@ def compute_exclusion(row, **params):
     3) Always check if exclude_power_prod => if (Coal Share of Power Production * 100) > threshold => exclude
        (We multiply by 100 here because it's stored in decimals in the input file)
     4) S&P (mining => Thermal Coal Mining), (power => Generation (Thermal Coal)) => revenue thresholds (no multiplication)
-    5) UR (Coal Share of Revenue) => revenue thresholds apply only when the company’s sector is clearly “mining” or clearly “power”
+    5) UR (Coal Share of Revenue) => revenue thresholds apply only when the company’s sector is clearly “mining” or clearly “power”.
        For mining: if the sector contains "mining" but NOT "power" or "generation", then apply UR mining threshold.
        For power: if the sector contains "power" or "generation" but NOT "mining", then apply UR power threshold.
-       (In both cases, the value in "Coal Share of Revenue" is stored as a decimal and thus multiplied by 100.)
-    6) UR Level 2 => all UR => Coal Share of Revenue (already in %), no multiplication
+       (In both cases, the UR revenue is multiplied by 100 before comparing with the threshold.)
+    6) UR Level 2 => all UR => Coal Share of Revenue (multiplied by 100) vs. threshold.
     7) expansions
     """
     reasons = []
@@ -261,12 +261,12 @@ def compute_exclusion(row, **params):
     if params["exclude_capacity"] and ur_installed_cap > params["capacity_threshold"]:
         reasons.append(f"Installed capacity {ur_installed_cap:.2f}MW > {params['capacity_threshold']}MW")
 
-    # 3) Coal Share of Power Production check (multiply by 100)
+    # 3) Coal Share of Power Production check (stored as decimal; multiply by 100)
     if params["exclude_power_prod"]:
         if (raw_coal_power * 100) > params["power_prod_threshold"]:
             reasons.append(f"Coal power production {raw_coal_power*100:.2f}% > {params['power_prod_threshold']}%")
 
-    # 4) S&P revenue thresholds (applies if SP record)
+    # 4) S&P revenue thresholds
     if is_sp:
         if "mining" in sector:
             if params["sp_mining_checkbox"] and sp_mining_val > params["sp_mining_threshold"]:
@@ -275,20 +275,20 @@ def compute_exclusion(row, **params):
             if params["sp_power_checkbox"] and sp_power_val > params["sp_power_threshold"]:
                 reasons.append(f"SP Power revenue {sp_power_val:.2f}% > {params['sp_power_threshold']}%")
     else:
-        # 5) UR revenue thresholds: apply only if sector is clearly mining or clearly power
-        # Check for mining-only: sector contains "mining" but not "power" or "generation"
-        if "mining" in sector and not ("power" in sector or "generation" in sector):
+        # 5) UR revenue thresholds: apply only when sector is clearly mining or clearly power
+        # For mining-only: sector contains "mining" but NOT "power" or "generation"
+        if ("mining" in sector) and not (("power" in sector) or ("generation" in sector)):
             if params["ur_mining_checkbox"] and (ur_coal_rev * 100) > params["ur_mining_threshold"]:
                 reasons.append(f"UR Mining revenue {ur_coal_rev*100:.2f}% > {params['ur_mining_threshold']}%")
-        # Check for power-only: sector contains "power" or "generation" but not "mining"
-        elif (("power" in sector or "generation" in sector) and "mining" not in sector):
+        # For power-only: sector contains "power" or "generation" but NOT "mining"
+        elif (("power" in sector or "generation" in sector) and ("mining" not in sector)):
             if params["ur_power_checkbox"] and (ur_coal_rev * 100) > params["ur_power_threshold"]:
                 reasons.append(f"UR Power revenue {ur_coal_rev*100:.2f}% > {params['ur_power_threshold']}%")
-        # 6) UR Level 2: applied to all UR regardless of sector
+        # 6) UR Level 2 threshold (applied to all UR records regardless of sector)
         if params["ur_level2_checkbox"] and (ur_coal_rev * 100) > params["ur_level2_threshold"]:
             reasons.append(f"UR Level 2 revenue {ur_coal_rev*100:.2f}% > {params['ur_level2_threshold']}%")
 
-    # 7) Expansions check
+    # 7) Expansion check
     if params["expansion_exclude"]:
         for kw in params["expansion_exclude"]:
             if kw.lower() in expansion_str:
