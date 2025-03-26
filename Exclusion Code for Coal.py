@@ -341,9 +341,9 @@ def main():
         capacity_threshold = st.number_input("Max installed capacity (MW)", value=10000.0)
 
     # UR Exclusion Level 2
-    with st.sidebar.expander("UR Exclusion Level 2", expanded=False):
+    with st.sidebar.expander("Urgewald: Exclude if Thermal Coal Mining, Power, and Services revenue > threshold", expanded=False):
         ur_level2_checkbox = st.checkbox("Apply UR Level 2 exclusion", value=False)
-        ur_level2_threshold = st.number_input("UR Level 2 revenue threshold (%)", value=6.0)
+        ur_level2_threshold = st.number_input("UR Level 2 revenue threshold (%)", value=10.0)
 
     # Expansion
     with st.sidebar.expander("Exclude if expansion plans on business", expanded=False):
