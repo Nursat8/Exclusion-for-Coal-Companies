@@ -313,8 +313,8 @@ def main():
     # Mining
     with st.sidebar.expander("Mining", expanded=True):
         sp_mining_checkbox = st.checkbox("S&P: Exclude if thermal coal revenue > threshold (mining)", value=True)
-        sp_mining_threshold = st.number_input("S&P Mining Threshold (%)", value=15.0)
-        ur_mining_checkbox = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold (mining)", value=True)
+        sp_mining_threshold = st.number_input("S&P Mining Threshold (%)", value=5.0)
+        ur_mining_checkbox = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold (mining)", value=False)
         ur_mining_threshold = st.number_input("UR Mining: Level 1 threshold (%)", value=5.0)
         exclude_mt = st.checkbox("Exclude if >10MT indicated", value=True)
         mt_threshold = st.number_input("Max production (MT) threshold", value=10.0)
@@ -323,7 +323,7 @@ def main():
     with st.sidebar.expander("Power", expanded=True):
         sp_power_checkbox = st.checkbox("S&P: Exclude if thermal coal revenue > threshold (power)", value=True)
         sp_power_threshold = st.number_input("S&P Power Threshold (%)", value=20.0)
-        ur_power_checkbox = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold (power)", value=True)
+        ur_power_checkbox = st.checkbox("Urgewald: Exclude if thermal coal revenue > threshold (power)", value=False)
         ur_power_threshold = st.number_input("UR Power: Level 1 threshold (%)", value=20.0)
         exclude_power_prod = st.checkbox("Exclude if > % production threshold", value=True)
         power_prod_threshold = st.number_input("Max coal power production (%)", value=20.0)
@@ -331,8 +331,8 @@ def main():
         capacity_threshold = st.number_input("Max installed capacity (MW)", value=10000.0)
 
     # UR Exclusion Level 2
-    with st.sidebar.expander("UR Exclusion Level 2", expanded=True):
-        ur_level2_checkbox = st.checkbox("Apply UR Level 2 exclusion", value=True)
+    with st.sidebar.expander("UR Exclusion Level 2", expanded=False):
+        ur_level2_checkbox = st.checkbox("Apply UR Level 2 exclusion", value=False)
         ur_level2_threshold = st.number_input("UR Level 2 revenue threshold (%)", value=6.0)
 
     # Expansion
