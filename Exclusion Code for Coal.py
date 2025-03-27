@@ -320,7 +320,7 @@ def main():
         ur_mining_checkbox = st.checkbox("Urgewald: Exclude if thermal coal mining revenue > threshold", value=False)
         ur_mining_threshold = st.number_input("UR Mining: Level 1 threshold (%)", value=5.0)
         # THEN S&P threshold
-        sp_mining_checkbox = st.checkbox("S&P: Exclude if thermal coal revenue > threshold (mining)", value=True)
+        sp_mining_checkbox = st.checkbox("S&P: Exclude if thermal coal mining revenue > threshold", value=True)
         sp_mining_threshold = st.number_input("S&P Mining Threshold (%)", value=5.0)
         exclude_mt = st.checkbox("Exclude if > MT threshold", value=True)
         mt_threshold = st.number_input("Max production (MT) threshold", value=10.0)
@@ -333,7 +333,7 @@ def main():
         ur_power_checkbox = st.checkbox("Urgewald: Exclude if thermal coal generation revenue > threshold", value=False)
         ur_power_threshold = st.number_input("UR Power: Level 1 threshold (%)", value=20.0)
         # THEN S&P threshold
-        sp_power_checkbox = st.checkbox("S&P: Exclude if thermal coal revenue > threshold (power)", value=True)
+        sp_power_checkbox = st.checkbox("S&P: Exclude if thermal coal generation revenue > threshold", value=True)
         sp_power_threshold = st.number_input("S&P Power Threshold (%)", value=20.0)
         exclude_power_prod = st.checkbox("Exclude if > % production threshold", value=True)
         power_prod_threshold = st.number_input("Max coal power production (%)", value=20.0)
