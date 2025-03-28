@@ -281,7 +281,7 @@ def compute_exclusion(row, **params):
             if params["ur_mining_checkbox"] and (ur_coal_rev * 100) > params["ur_mining_threshold"]:
                 reasons.append(f"UR Mining revenue {ur_coal_rev*100:.2f}% > {params['ur_mining_threshold']}%")
         # For power-only: sector contains "power" or "generation" but NOT "mining"
-        elif (("power" in sector or "generation" in sector) and not (("mining" in sector) or ("services" in sector)):
+        elif (("power" in sector or "generation" in sector) and not (("mining" in sector) or ("services" in sector)) :
             if params["ur_power_checkbox"] and (ur_coal_rev * 100) > params["ur_power_threshold"]:
                 reasons.append(f"UR Power revenue {ur_coal_rev*100:.2f}% > {params['ur_power_threshold']}%")
         # 6) UR Level 2 threshold (applied to all UR records regardless of sector)
