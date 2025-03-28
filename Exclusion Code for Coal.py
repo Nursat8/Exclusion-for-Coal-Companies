@@ -454,9 +454,14 @@ def main():
         def finalize_cols(df):
             df = df.copy()
             for c in final_cols:
-                if c not in df.columns:
-                    df[c] = ""
-            return df[final_cols]
+            if c not in df.columns:
+                df[c] = ""
+            df = df[final_cols]
+            if "BB Ticker" in df.columns:
+                # Remove any occurrence of whitespace and the word "Equity"
+                df["BB Ticker"] = df["BB Ticker"].astype(str).str.replace(r'\s*Equity', '', regex=True)
+            return df
+
 
         excluded_final = finalize_cols(excluded_final)
         retained_merged = finalize_cols(retained_merged)
