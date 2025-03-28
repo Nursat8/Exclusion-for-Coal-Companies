@@ -454,8 +454,8 @@ def main():
         def finalize_cols(df):
             df = df.copy()
             for c in final_cols:
-            if c not in df.columns:
-                df[c] = ""
+                if c not in df.columns:
+                    df[c] = ""
             df = df[final_cols]
             if "BB Ticker" in df.columns:
                 # Remove any occurrence of whitespace and the word "Equity"
