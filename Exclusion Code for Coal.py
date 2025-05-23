@@ -269,8 +269,12 @@ def compute_exclusion(row, **params):
 
     sp_mining_val = row.get("Thermal Coal Mining", 0)
     sp_power_val  = row.get("Generation (Thermal Coal)", 0)
-    ur_coal_rev   = row.get("Coal Share of Revenue", 0)
+     _rev = row.get("Coal Share of Revenue", 0)
+    ur_coal_rev = _rev if _rev > 1 else _rev * 100
     raw_coal_power = row.get("Coal Share of Power Production", 0)
+    _pp = raw_coal_power
+    raw_coal_power = _pp if _pp > 1 else _pp * 100
+
     ur_installed_cap = row.get("Installed Coal Power Capacity (MW)", 0)
 
     prod_str = str(row.get(">10MT / >5GW", "")).strip().lower()
@@ -305,9 +309,9 @@ def compute_exclusion(row, **params):
         if ("power" in sector or "generation" in sector) and not "mining" in sector and params["ur_power_checkbox"] and (ur_coal_rev*100) > params["ur_power_threshold"]:
             reasons.append(f"UR Power revenue {(ur_coal_rev*100):.2f}% > {params['ur_power_threshold']}%")
         # UR level2 applies always
-        if params["ur_level2_checkbox"] and (ur_coal_rev*100) > params["ur_level2_threshold"]:
-            reasons.append(f"UR Level 2 revenue {(ur_coal_rev*100):.2f}% > {params['ur_level2_threshold']}%")
-
+    if params["ur_level2_checkbox"] and ur_coal_rev > params["ur_level2_threshold"]:
+        reasons.append(f"UR Level 2 revenue {ur_coal_rev:.2f}% > {params['ur_level2_threshold']}%")
+        
     # 7) expansion
     if params["expansion_exclude"]:
         for kw in params["expansion_exclude"]:
