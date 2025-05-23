@@ -377,9 +377,10 @@ def main():
         for df in [merged_sp, ur_only_df]:
             df["Merged"] = df.get("Merged", False)
 
-        sp_merged   = merged_sp[merged_sp["Merged"]]
-        sp_unmerged = merged_sp[~merged_sp["Merged"]]
-        ur_unmerged = ur_only_df[~ur_only_df["Merged"]]
+        sp_merged   = merged_sp[ merged_sp["Merged"] == True ]
+        sp_unmerged = merged_sp[ merged_sp["Merged"] == False ]
+        ur_unmerged = ur_only_df[ ur_only_df["Merged"] == False ]
+
         for df in [sp_merged, sp_unmerged, ur_unmerged]:
             if "Merged" in df.columns:
                 df.drop(columns=["Merged"], inplace=True)
