@@ -241,7 +241,7 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
                 if (col not in sp_df.columns) \
                    or pd.isnull(sp_df.loc[found_index, col]) \
                    or str(sp_df.loc[found_index, col]).strip() == "":
-                    sp_df.loc[found_index, col] = str(val)
+                    sp_df.loc[found_index, col] = val
             sp_df.loc[found_index, "Merged"] = True
 
         else:
@@ -374,6 +374,23 @@ def main():
             return
 
         merged_sp, ur_only_df = merge_ur_into_sp_opt(sp_df, ur_df)
+       
+        merged_sp["Merged"]    = merged_sp["Merged"].fillna(False).astype(bool)
+        ur_only_df["Merged"]   = ur_only_df["Merged"].fillna(False).astype(bool)
+
+       
+        numeric_cols = [
+            "Thermal Coal Mining",
+            "Generation (Thermal Coal)",
+            "Coal Share of Revenue",
+            "Coal Share of Power Production",
+            "Installed Coal Power Capacity (MW)"
+        ]
+        for df in (merged_sp, ur_only_df):
+            for c in numeric_cols:
+                if c in df.columns:
+                    df[c] = df[c].apply(to_float)
+
 
 
         merged_sp["Merged"]    = merged_sp["Merged"].fillna(False).astype(bool)
