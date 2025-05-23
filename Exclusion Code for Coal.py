@@ -237,9 +237,13 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
             for col, val in ur_row.items():
                 if col.startswith("norm_"):
                     continue
-                if (col not in sp_df.columns)  PD.isnull(sp_df.loc[found_index, col]) or str(sp_df.loc[found_index, col]).strip() == "":
+                # if the column doesn't exist in SP, or its value is null/empty, overwrite it
+                if (col not in sp_df.columns) \
+                   or pd.isnull(sp_df.loc[found_index, col]) \
+                   or str(sp_df.loc[found_index, col]).strip() == "":
                     sp_df.loc[found_index, col] = str(val)
             sp_df.loc[found_index, "Merged"] = True
+
         else:
             ur_not_merged.append(ur_row)
 
