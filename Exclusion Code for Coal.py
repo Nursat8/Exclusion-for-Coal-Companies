@@ -374,12 +374,16 @@ def main():
             return
 
         merged_sp, ur_only_df = merge_ur_into_sp_opt(sp_df, ur_df)
-        for df in [merged_sp, ur_only_df]:
-            df["Merged"] = df.get("Merged", False)
+
+
+        merged_sp["Merged"]    = merged_sp["Merged"].fillna(False).astype(bool)
+        ur_only_df["Merged"]   = ur_only_df["Merged"].fillna(False).astype(bool)
+
 
         sp_merged   = merged_sp[ merged_sp["Merged"] ]
         sp_unmerged = merged_sp[ ~merged_sp["Merged"] ]
         ur_unmerged = ur_only_df[ ~ur_only_df["Merged"] ]
+
         merged_sp, ur_only_df = merge_ur_into_sp_opt(sp_df, ur_df)
         merged_sp["Merged"]  = merged_sp["Merged"].fillna(False).astype(bool)
         ur_only_df["Merged"] = ur_only_df["Merged"].fillna(False).astype(bool)
