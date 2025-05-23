@@ -269,7 +269,7 @@ def compute_exclusion(row, **params):
 
     sp_mining_val = row.get("Thermal Coal Mining", 0)
     sp_power_val  = row.get("Generation (Thermal Coal)", 0)
-     _rev = row.get("Coal Share of Revenue", 0)
+    _rev = row.get("Coal Share of Revenue", 0)
     ur_coal_rev = _rev if _rev > 1 else _rev * 100
     raw_coal_power = row.get("Coal Share of Power Production", 0)
     _pp = raw_coal_power
