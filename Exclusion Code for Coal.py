@@ -259,8 +259,16 @@ def compute_exclusion(row, **params):
 
     # sector parsing (for UR rules)
     sector_raw = str(row.get("Coal Industry Sector", "")).lower()
-    mining_kw = ("mining", "extraction", "producer")
-    power_kw  = ("power", "generation", "utility", "electric")
+    mining_kw = ("mining")
+    power_kw  = ("power")
+    parts = re.split(r"[;,/]|(?:\s*\n\s*)", sector_raw)
+    parts = [p.strip() for p in parts if p.strip()]
+    mining_parts = [p for p in parts if any(k in p for k in mining_kw)]
+    power_parts  = [p for p in parts if any(k in p for k in power_kw)]
+    other_parts  = [p for p in parts if p not in mining_parts + power_parts]
+    is_mining_only = bool(mining_parts) and not power_parts and not other_parts
+    is_power_only  = bool(power_parts)  and not mining_parts and not other_parts
+    is_mixed       = bool(mining_parts) and bool(power_parts)
     has_mining = any(k in sector_raw for k in mining_kw)
     has_power  = any(k in sector_raw for k in power_kw)
     is_mining_only =  has_mining and not has_power
