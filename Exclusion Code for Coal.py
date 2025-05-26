@@ -282,16 +282,28 @@ def compute_exclusion(row, **params):
             if combo_sp > params["sp_level2_threshold"]:
                 reasons.append(f"SP Level 2 combined {combo_sp:.2f}% > {params['sp_level2_threshold']}%")
     else:
-        # UR Level 1 mining‐only
-        if params["ur_mining_checkbox"] and ("mining" in sector) and not ("power" in sector) and ur_rev_pct > params["ur_mining_threshold"]:
+        # UR Level 1 mining‐only: sector must contain “mining” but not “power”
+        if params["ur_mining_checkbox"] \
+           and ("mining" in sector) \
+           and ("power" not in sector) \
+           and ur_rev_pct > params["ur_mining_threshold"]:
             reasons.append(f"UR Mining revenue {ur_rev_pct:.2f}% > {params['ur_mining_threshold']}%")
-        # UR Level 1 power‐only (now uses Coal Share of Power Production)
-        if params["ur_power_checkbox"] and ("power" in sector) and not ("mining" in sector) and ur_pp_pct > params["ur_power_threshold"]:
+
+        # UR Level 1 power‐only: sector must contain “power” but not “mining”
+        if params["ur_power_checkbox"] \
+           and ("power" in sector) \
+           and ("mining" not in sector) \
+           and ur_pp_pct > params["ur_power_threshold"]:
             reasons.append(f"UR Power production {ur_pp_pct:.2f}% > {params['ur_power_threshold']}%")
-        # UR Mixed L1 (mining & power)
-        if params["ur_mixed_checkbox"] and ("mining" in sector) and ("power" in sector) and ur_rev_pct > params["ur_mixed_threshold"]:
+
+        # UR Mixed L1 (both “mining” and “power” in sector)
+        if params["ur_mixed_checkbox"] \
+           and ("mining" in sector) \
+           and ("power" in sector) \
+           and ur_rev_pct > params["ur_mixed_threshold"]:
             reasons.append(f"UR Mixed mining&power revenue {ur_rev_pct:.2f}% > {params['ur_mixed_threshold']}%")
-        # UR Level 2 overall
+
+        # UR Level 2 overall share
         if params["ur_level2_checkbox"] and ur_rev_pct > params["ur_level2_threshold"]:
             reasons.append(f"UR Level 2 revenue {ur_rev_pct:.2f}% > {params['ur_level2_threshold']}%")
 
