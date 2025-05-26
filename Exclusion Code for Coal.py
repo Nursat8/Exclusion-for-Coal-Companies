@@ -380,32 +380,28 @@ def main():
 
         merged_sp, ur_only_df = merge_ur_into_sp_opt(sp_df, ur_df)
        
-        merged_sp["Merged"]    = merged_sp["Merged"].fillna(False).astype(bool)
-        ur_only_df["Merged"]   = ur_only_df["Merged"].fillna(False).astype(bool)
 
-       
-        numeric_cols = [
-            "Thermal Coal Mining",
-            "Generation (Thermal Coal)",
-            "Coal Share of Revenue",
-            "Coal Share of Power Production",
-            "Installed Coal Power Capacity (MW)"
-        ]
-        for df in (merged_sp, ur_only_df):
-            for c in numeric_cols:
-                if c in df.columns:
-                    df[c] = df[c].apply(to_float)
+    merged_sp, ur_only_df = merge_ur_into_sp_opt(sp_df, ur_df)
 
 
+    for df in (merged_sp, ur_only_df):
+        df["Merged"] = df["Merged"].fillna(False).astype(bool)
 
-        merged_sp["Merged"]    = merged_sp["Merged"].fillna(False).astype(bool)
-        ur_only_df["Merged"]   = ur_only_df["Merged"].fillna(False).astype(bool)
+    numeric_cols = [
+        "Thermal Coal Mining",
+        "Generation (Thermal Coal)",
+        "Coal Share of Revenue",
+        "Coal Share of Power Production",
+        "Installed Coal Power Capacity (MW)"
+    ]
+    for df in (merged_sp, ur_only_df):
+        for c in numeric_cols:
+            if c in df.columns:
+                df[c] = df[c].apply(to_float)
 
-
-        sp_merged   = merged_sp[ merged_sp["Merged"] ]
-        sp_unmerged = merged_sp[ ~merged_sp["Merged"] ]
-        ur_unmerged = ur_only_df[ ~ur_only_df["Merged"] ]
-
+    sp_merged   = merged_sp[ merged_sp["Merged"] ]
+    sp_unmerged = merged_sp[ ~merged_sp["Merged"] ]
+    ur_unmerged = ur_only_df[ ~ur_only_df["Merged"] ]
         merged_sp, ur_only_df = merge_ur_into_sp_opt(sp_df, ur_df)
         merged_sp["Merged"]  = merged_sp["Merged"].fillna(False).astype(bool)
         ur_only_df["Merged"] = ur_only_df["Merged"].fillna(False).astype(bool)
