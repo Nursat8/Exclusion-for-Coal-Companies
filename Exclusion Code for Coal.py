@@ -269,6 +269,9 @@ def compute_exclusion(row, **params):
 
     sp_mining_val = row.get("Thermal Coal Mining", 0)
     sp_power_val  = row.get("Generation (Thermal Coal)", 0)
+
+    sp_mining_pct = sp_mining_val * 100 if sp_mining_val <= 1 else sp_mining_val
+    sp_power_pct  = sp_power_val  * 100 if sp_power_val  <= 1 else sp_power_val
     _rev = row.get("Coal Share of Revenue", 0)
     ur_coal_rev = _rev if _rev > 1 else _rev * 100
     raw_coal_power = row.get("Coal Share of Power Production", 0)
@@ -291,16 +294,15 @@ def compute_exclusion(row, **params):
         reasons.append(f"Installed capacity {ur_installed_cap:.2f}MW > {params['capacity_threshold']}MW")
 
     # 3) Power production
-    if params["exclude_power_prod"] and (raw_coal_power * 100) > params["power_prod_threshold"]:
-        reasons.append(f"Coal power production {(raw_coal_power*100):.2f}% > {params['power_prod_threshold']}%")
+    if params["exclude_power_prod"] and raw_coal_power > params["power_prod_threshold"]:
+        reasons.append(f"Coal power production {raw_coal_power:.2f}% > {params['power_prod_threshold']}%")
+
 
     if is_sp:
-        # SP mining
-        if "mining" in sector and params["sp_mining_checkbox"] and sp_mining_val > params["sp_mining_threshold"]:
-            reasons.append(f"SP Mining revenue {sp_mining_val:.2f}% > {params['sp_mining_threshold']}%")
-        # SP power
-        if ("power" in sector or "generation" in sector) and params["sp_power_checkbox"] and sp_power_val > params["sp_power_threshold"]:
-            reasons.append(f"SP Power revenue {sp_power_val:.2f}% > {params['sp_power_threshold']}%")
+        if params["sp_mining_checkbox"] and sp_mining_pct > params["sp_mining_threshold"]:
+            reasons.append(f"SP Mining revenue {sp_mining_pct:.2f}% > {params['sp_mining_threshold']}%")
+        if params["sp_power_checkbox"] and sp_power_pct > params["sp_power_threshold"]:
+            reasons.append(f"SP Power revenue {sp_power_pct:.2f}% > {params['sp_power_threshold']}%")
     else:
         # UR mining-only
         if ("mining" in sector) and not ("power" in sector or "generation" in sector) and params["ur_mining_checkbox"] and (ur_coal_rev*100) > params["ur_mining_threshold"]:
