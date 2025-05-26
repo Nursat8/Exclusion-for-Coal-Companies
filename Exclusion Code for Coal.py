@@ -311,8 +311,10 @@ def compute_exclusion(row, **params):
         if ("power" in sector or "generation" in sector) and not "mining" in sector and params["ur_power_checkbox"] and (ur_coal_rev*100) > params["ur_power_threshold"]:
             reasons.append(f"UR Power revenue {(ur_coal_rev*100):.2f}% > {params['ur_power_threshold']}%")
         # UR level2 applies always
-    if params["ur_level2_checkbox"] and ur_coal_rev > params["ur_level2_threshold"]:
-        reasons.append(f"UR Level 2 revenue {ur_coal_rev:.2f}% > {params['ur_level2_threshold']}%")
+    if (not is_sp) and params["ur_level2_checkbox"]:
+        combo_pct = ur_coal_rev + raw_coal_power
+        if combo_pct > params["ur_level2_threshold"]:
+            reasons.append(f"UR Level 2 combined revenue {combo_pct:.2f}% > {params['ur_level2_threshold']}%")
         
     # 7) expansion
     if params["expansion_exclude"]:
