@@ -240,18 +240,24 @@ def compute_exclusion(row, **params):
     reasons = []
 
     # --- S&P percentages ---
+    # Thermal Coal Mining and Generation(Thermal Coal) are already in % (e.g. 5.0)
     sp_min = row.get("Thermal Coal Mining", 0)
     sp_pow = row.get("Generation (Thermal Coal)", 0)
-    # assume values already as % (e.g. 5.0)
-    # --- UR percentage ---
+
+    # --- UR percentages ---
+    # Coal Share of Revenue → ur_rev_pct
     _rev = row.get("Coal Share of Revenue", 0)
     ur_rev_pct = _rev if _rev > 1 else _rev * 100
-    # boilerplate
-    prod_str = str(row.get(">10MT / >5GW","")).lower()
-    cap      = row.get("Installed Coal Power Capacity (MW)",0)
+    # Coal Share of Power Production → ur_pp_pct
+    _pp = row.get("Coal Share of Power Production", 0)
+    ur_pp_pct = _pp if _pp > 1 else _pp * 100
+
+    # other boilerplate
+    prod_str      = str(row.get(">10MT / >5GW","")).lower()
+    cap           = row.get("Installed Coal Power Capacity (MW)",0)
     expansion_str = str(row.get("expansion","")).lower()
-    is_sp    = bool(str(row.get("SP_ENTITY_NAME","")).strip())
-    sector   = str(row.get("Coal Industry Sector","")).lower()
+    is_sp         = bool(str(row.get("SP_ENTITY_NAME","")).strip())
+    sector        = str(row.get("Coal Industry Sector","")).lower()
 
     # 1) >10MT
     if params["exclude_mt"] and "10mt" in prod_str:
@@ -259,14 +265,18 @@ def compute_exclusion(row, **params):
     # 2) capacity
     if params["exclude_capacity"] and cap > params["capacity_threshold"]:
         reasons.append(f"Installed capacity {cap:.0f}MW > {params['capacity_threshold']}MW")
+    # 3) global Power-production % threshold (uses Coal Share of Power Production)
+    if params["exclude_power_prod"] and ur_pp_pct > params["power_prod_threshold"]:
+        reasons.append(f"Coal power production {ur_pp_pct:.2f}% > {params['power_prod_threshold']}%")
 
     if is_sp:
-        # S&P Level 1
+        # S&P Level 1 mining‐only
         if params["sp_mining_checkbox"] and sp_min > params["sp_mining_threshold"]:
             reasons.append(f"SP Mining revenue {sp_min:.2f}% > {params['sp_mining_threshold']}%")
+        # S&P Level 1 power‐only (uses Generation (Thermal Coal))
         if params["sp_power_checkbox"] and sp_pow > params["sp_power_threshold"]:
             reasons.append(f"SP Power revenue {sp_pow:.2f}% > {params['sp_power_threshold']}%")
-        # S&P Level 2 (combined)
+        # S&P Level 2 combined
         if params["sp_level2_checkbox"]:
             combo_sp = sp_min + sp_pow
             if combo_sp > params["sp_level2_threshold"]:
@@ -275,25 +285,24 @@ def compute_exclusion(row, **params):
         # UR Level 1 mining‐only
         if params["ur_mining_checkbox"] and ("mining" in sector) and not ("power" in sector) and ur_rev_pct > params["ur_mining_threshold"]:
             reasons.append(f"UR Mining revenue {ur_rev_pct:.2f}% > {params['ur_mining_threshold']}%")
-        # UR Level 1 power‐only
-        if params["ur_power_checkbox"] and ("power" in sector) and not ("mining" in sector) and ur_rev_pct > params["ur_power_threshold"]:
-            reasons.append(f"UR Power revenue {ur_rev_pct:.2f}% > {params['ur_power_threshold']}%")
-        # UR Mixed Level 1 (mining & power)
+        # UR Level 1 power‐only (now uses Coal Share of Power Production)
+        if params["ur_power_checkbox"] and ("power" in sector) and not ("mining" in sector) and ur_pp_pct > params["ur_power_threshold"]:
+            reasons.append(f"UR Power production {ur_pp_pct:.2f}% > {params['ur_power_threshold']}%")
+        # UR Mixed L1 (mining & power)
         if params["ur_mixed_checkbox"] and ("mining" in sector) and ("power" in sector) and ur_rev_pct > params["ur_mixed_threshold"]:
             reasons.append(f"UR Mixed mining&power revenue {ur_rev_pct:.2f}% > {params['ur_mixed_threshold']}%")
-        # UR Level 2 (overall share)
+        # UR Level 2 overall
         if params["ur_level2_checkbox"] and ur_rev_pct > params["ur_level2_threshold"]:
             reasons.append(f"UR Level 2 revenue {ur_rev_pct:.2f}% > {params['ur_level2_threshold']}%")
 
-    # 7) expansion
+    # 7) expansion filter
     for kw in params["expansion_exclude"]:
         if kw.lower() in expansion_str:
             reasons.append(f"Expansion matched '{kw}'")
             break
 
     return pd.Series([bool(reasons), "; ".join(reasons)],
-                     index=["Excluded","Exclusion Reasons"])
-
+                     index=["Excluded", "Exclusion Reasons"])
 ##############################################
 # 8. STREAMLIT MAIN
 ##############################################
