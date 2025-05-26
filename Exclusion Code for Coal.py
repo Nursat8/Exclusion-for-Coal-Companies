@@ -296,8 +296,8 @@ def compute_exclusion(row, **params):
 
     if is_sp:
     # convert SP fractions into percents for comparison
-    sp_mining_pct = sp_mining_val  * 100
-    sp_power_pct  = sp_power_val   * 100
+        sp_mining_pct = sp_mining_val  * 100
+        sp_power_pct  = sp_power_val   * 100
     if params["sp_mining_checkbox"] and sp_mining_pct > params["sp_mining_threshold"]:
         reasons.append(f"SP Mining revenue {sp_mining_pct:.2f}% > {params['sp_mining_threshold']}%")
     if params["sp_power_checkbox"] and sp_power_pct > params["sp_power_threshold"]:
