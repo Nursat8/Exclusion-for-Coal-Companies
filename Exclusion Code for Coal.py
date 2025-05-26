@@ -307,6 +307,7 @@ def compute_exclusion(row, **params):
             combo_sp = sp_mining_pct + sp_power_pct
         if combo_sp > params["sp_level2_threshold"]:
             reasons.append(f"SP Level 2 combined revenue {combo_sp:.2f}% > {params['sp_level2_threshold']}%")
+     else:
     else:
         # UR mining-only
         if ("mining" in sector) and not ("power" in sector or "generation" in sector) and params["ur_mining_checkbox"] and (ur_coal_rev*100) > params["ur_mining_threshold"]:
@@ -429,39 +430,7 @@ def main():
 
         sp_only = sp_unmerged[(sp_unmerged["Thermal Coal Mining"]>0)|(sp_unmerged["Generation (Thermal Coal)"]>0)]
 
-         # --- Build explicit params dict for compute_exclusion ---
-        params = {
-            # Urgewald Level 1
-            "ur_mining_checkbox":    ur_mining_checkbox,
-            "ur_mining_threshold":   ur_mining_threshold,
-            "ur_power_checkbox":     ur_power_checkbox,
-            "ur_power_threshold":    ur_power_threshold,
-
-            # S&P Level 1
-            "sp_mining_checkbox":    sp_mining_checkbox,
-            "sp_mining_threshold":   sp_mining_threshold,
-            "sp_power_checkbox":     sp_power_checkbox,
-            "sp_power_threshold":    sp_power_threshold,
-
-            # >10MT / capacity / power‐production
-            "exclude_mt":            exclude_mt,
-            "mt_threshold":          mt_threshold,
-            "exclude_power_prod":    exclude_power_prod,
-            "power_prod_threshold":  power_prod_threshold,
-            "exclude_capacity":      exclude_capacity,
-            "capacity_threshold":    capacity_threshold,
-
-            # Urgewald Level 2
-            "ur_level2_checkbox":    ur_level2_checkbox,
-            "ur_level2_threshold":   ur_level2_threshold,
-
-            # S&P Level 2 (new)
-            "sp_level2_checkbox":    sp_level2_checkbox,
-            "sp_level2_threshold":   sp_level2_threshold,
-
-            # expansion filter
-            "expansion_exclude":     expansion_exclude,
-        }
+        params = {k: v for k,v in locals().items() if k.endswith("checkbox") or k.endswith("threshold") or k in ["exclude_mt","mt_threshold","exclude_power_prod","power_prod_threshold","exclude_capacity","capacity_threshold","expansion_exclude"]}
 
         def apply_filter(df):
             if df.empty: return df.assign(Excluded=False, **{"Exclusion Reasons":""})
