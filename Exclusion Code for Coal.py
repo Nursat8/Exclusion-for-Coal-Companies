@@ -307,7 +307,6 @@ def compute_exclusion(row, **params):
             combo_sp = sp_mining_pct + sp_power_pct
         if combo_sp > params["sp_level2_threshold"]:
             reasons.append(f"SP Level 2 combined revenue {combo_sp:.2f}% > {params['sp_level2_threshold']}%")
-     else:
     else:
         # UR mining-only
         if ("mining" in sector) and not ("power" in sector or "generation" in sector) and params["ur_mining_checkbox"] and (ur_coal_rev*100) > params["ur_mining_threshold"]:
