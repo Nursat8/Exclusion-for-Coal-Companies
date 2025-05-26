@@ -257,23 +257,28 @@ def compute_exclusion(row, **params):
     has_sp = bool(str(row.get("SP_ENTITY_NAME", "")).strip())
     has_ur = bool(str(row.get("Company",       "")).strip())
 
-    # sector parsing (for UR rules)
+    # ─── sector parsing  (strict “only-these-sectors” logic) ─────────────────────
     sector_raw = str(row.get("Coal Industry Sector", "")).lower()
-    mining_kw = ("mining")
-    power_kw  = ("power")
+
+    # keyword families  – add synonyms here if needed
+    mining_kw = ("mining", "extraction", "producer")
+    power_kw  = ("power", "generation", "utility", "electric")
+
+    # 1️⃣  split the cell on common delimiters
     parts = re.split(r"[;,/]|(?:\s*\n\s*)", sector_raw)
-    parts = [p.strip() for p in parts if p.strip()]
+    parts = [p.strip() for p in parts if p.strip()]        # drop empties
+
+    # 2️⃣  classify each token
     mining_parts = [p for p in parts if any(k in p for k in mining_kw)]
     power_parts  = [p for p in parts if any(k in p for k in power_kw)]
     other_parts  = [p for p in parts if p not in mining_parts + power_parts]
+
+    # 3️⃣  final flags
     is_mining_only = bool(mining_parts) and not power_parts and not other_parts
     is_power_only  = bool(power_parts)  and not mining_parts and not other_parts
-    is_mixed       = bool(mining_parts) and bool(power_parts)
-    has_mining = any(k in sector_raw for k in mining_kw)
-    has_power  = any(k in sector_raw for k in power_kw)
-    is_mining_only =  has_mining and not has_power
-    is_power_only  =  has_power  and not has_mining
-    is_mixed       =  has_mining and  has_power
+    # “mixed” means *exactly* mining & power together, nothing else
+    is_mixed       = bool(mining_parts) and bool(power_parts) and not other_parts
+
 
     # 3️⃣  global screens -------------------------------------------------------
     if params["exclude_mt"] and "10mt" in prod_str:
