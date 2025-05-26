@@ -300,7 +300,7 @@ def compute_exclusion(row, **params):
     # 6️⃣  expansion keywords ---------------------------------------------------
     for kw in params["expansion_exclude"]:
         if kw.lower() in expansion:
-            reasons.append(f"Expansion matched “{kw}”")
+            reasons.append(f"Expansion matched '{kw}'")
             break
 
     return pd.Series([bool(reasons), "; ".join(reasons)],
