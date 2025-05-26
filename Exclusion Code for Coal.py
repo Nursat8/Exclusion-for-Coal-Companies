@@ -295,13 +295,12 @@ def compute_exclusion(row, **params):
         reasons.append(f"Coal power production {(raw_coal_power*100):.2f}% > {params['power_prod_threshold']}%")
 
     if is_sp:
-    # convert SP fractions into percents for comparison
-        sp_mining_pct = sp_mining_val  * 100
-        sp_power_pct  = sp_power_val   * 100
-    if params["sp_mining_checkbox"] and sp_mining_pct > params["sp_mining_threshold"]:
-        reasons.append(f"SP Mining revenue {sp_mining_pct:.2f}% > {params['sp_mining_threshold']}%")
-    if params["sp_power_checkbox"] and sp_power_pct > params["sp_power_threshold"]:
-        reasons.append(f"SP Power revenue {sp_power_pct:.2f}% > {params['sp_power_threshold']}%")
+        # SP mining
+        if "mining" in sector and params["sp_mining_checkbox"] and sp_mining_val > params["sp_mining_threshold"]:
+            reasons.append(f"SP Mining revenue {sp_mining_val:.2f}% > {params['sp_mining_threshold']}%")
+        # SP power
+        if ("power" in sector or "generation" in sector) and params["sp_power_checkbox"] and sp_power_val > params["sp_power_threshold"]:
+            reasons.append(f"SP Power revenue {sp_power_val:.2f}% > {params['sp_power_threshold']}%")
     else:
         # UR mining-only
         if ("mining" in sector) and not ("power" in sector or "generation" in sector) and params["ur_mining_checkbox"] and (ur_coal_rev*100) > params["ur_mining_threshold"]:
@@ -380,13 +379,10 @@ def main():
 
         merged_sp, ur_only_df = merge_ur_into_sp_opt(sp_df, ur_df)
        
+        merged_sp["Merged"]    = merged_sp["Merged"].fillna(False).astype(bool)
+        ur_only_df["Merged"]   = ur_only_df["Merged"].fillna(False).astype(bool)
 
-    merged_sp, ur_only_df = merge_ur_into_sp_opt(sp_df, ur_df)
-
-
-    for df in (merged_sp, ur_only_df):
-        df["Merged"] = df["Merged"].fillna(False).astype(bool)
-
+       
         numeric_cols = [
             "Thermal Coal Mining",
             "Generation (Thermal Coal)",
@@ -399,9 +395,16 @@ def main():
                 if c in df.columns:
                     df[c] = df[c].apply(to_float)
 
+
+
+        merged_sp["Merged"]    = merged_sp["Merged"].fillna(False).astype(bool)
+        ur_only_df["Merged"]   = ur_only_df["Merged"].fillna(False).astype(bool)
+
+
         sp_merged   = merged_sp[ merged_sp["Merged"] ]
         sp_unmerged = merged_sp[ ~merged_sp["Merged"] ]
         ur_unmerged = ur_only_df[ ~ur_only_df["Merged"] ]
+
         merged_sp, ur_only_df = merge_ur_into_sp_opt(sp_df, ur_df)
         merged_sp["Merged"]  = merged_sp["Merged"].fillna(False).astype(bool)
         ur_only_df["Merged"] = ur_only_df["Merged"].fillna(False).astype(bool)
