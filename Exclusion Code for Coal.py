@@ -269,9 +269,6 @@ def compute_exclusion(row, **params):
 
     sp_mining_val = row.get("Thermal Coal Mining", 0)
     sp_power_val  = row.get("Generation (Thermal Coal)", 0)
-
-    sp_mining_pct = sp_mining_val * 100 if sp_mining_val <= 1 else sp_mining_val
-    sp_power_pct  = sp_power_val  * 100 if sp_power_val  <= 1 else sp_power_val
     _rev = row.get("Coal Share of Revenue", 0)
     ur_coal_rev = _rev if _rev > 1 else _rev * 100
     raw_coal_power = row.get("Coal Share of Power Production", 0)
@@ -294,19 +291,16 @@ def compute_exclusion(row, **params):
         reasons.append(f"Installed capacity {ur_installed_cap:.2f}MW > {params['capacity_threshold']}MW")
 
     # 3) Power production
-    if params["exclude_power_prod"] and raw_coal_power > params["power_prod_threshold"]:
-        reasons.append(f"Coal power production {raw_coal_power:.2f}% > {params['power_prod_threshold']}%")
-
+    if params["exclude_power_prod"] and (raw_coal_power * 100) > params["power_prod_threshold"]:
+        reasons.append(f"Coal power production {(raw_coal_power*100):.2f}% > {params['power_prod_threshold']}%")
 
     if is_sp:
-        if params["sp_mining_checkbox"] and sp_mining_pct > params["sp_mining_threshold"]:
-            reasons.append(f"SP Mining revenue {sp_mining_pct:.2f}% > {params['sp_mining_threshold']}%")
-        if params["sp_power_checkbox"] and sp_power_pct > params["sp_power_threshold"]:
-            reasons.append(f"SP Power revenue {sp_power_pct:.2f}% > {params['sp_power_threshold']}%")
-        if params["sp_level2_checkbox"]:
-            combo_sp = sp_mining_pct + sp_power_pct
-        if combo_sp > params["sp_level2_threshold"]:
-            reasons.append(f"SP Level 2 combined revenue {combo_sp:.2f}% > {params['sp_level2_threshold']}%")
+        # SP mining
+        if "mining" in sector and params["sp_mining_checkbox"] and sp_mining_val > params["sp_mining_threshold"]:
+            reasons.append(f"SP Mining revenue {sp_mining_val:.2f}% > {params['sp_mining_threshold']}%")
+        # SP power
+        if ("power" in sector or "generation" in sector) and params["sp_power_checkbox"] and sp_power_val > params["sp_power_threshold"]:
+            reasons.append(f"SP Power revenue {sp_power_val:.2f}% > {params['sp_power_threshold']}%")
     else:
         # UR mining-only
         if ("mining" in sector) and not ("power" in sector or "generation" in sector) and params["ur_mining_checkbox"] and (ur_coal_rev*100) > params["ur_mining_threshold"]:
@@ -360,10 +354,9 @@ def main():
         exclude_capacity     = st.checkbox("Exclude if > capacity (MW) threshold", True)
         capacity_threshold   = st.number_input("Max installed capacity (MW)", value=10000.0)
 
-    with st.sidebar.expander("S&P Level 2", expanded=False):
-        sp_level2_checkbox  = st.checkbox("Apply SP Level 2 exclusion", False)
-        sp_level2_threshold = st.number_input("SP Level 2 combined revenue threshold (%)", value=10.0)
-
+    with st.sidebar.expander("Urgewald Level 2", expanded=False):
+        ur_level2_checkbox   = st.checkbox("Apply UR Level 2 exclusion", False)
+        ur_level2_threshold  = st.number_input("UR Level 2 revenue threshold (%)", value=10.0)
 
     with st.sidebar.expander("Exclude expansions", expanded=False):
         expansions_possible  = ["mining","infrastructure","power","subsidiary of a coal developer"]
