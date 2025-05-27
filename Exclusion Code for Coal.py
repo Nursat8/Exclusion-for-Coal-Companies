@@ -211,6 +211,9 @@ def test(val, thr, ge):
 
 
 # ───────── compute_exclusion (comparisons now use test()) ─────────────────────
+def op(ge: bool) -> str:
+    return "≥" if ge else ">"
+    
 def compute_exclusion(row, **params):
     reasons = []
 
