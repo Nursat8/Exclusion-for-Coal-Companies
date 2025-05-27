@@ -238,6 +238,8 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
 ##############################################
 def compute_exclusion(row, **params):
     reasons = []
+def cmp(v, thr):
+    return v >= thr if params["inclusive_ge"] else v > thr
 
     # 1️⃣  numeric fields -------------------------------------------------------
     sp_min = row.get("Thermal Coal Mining",          0.0)
@@ -285,7 +287,7 @@ def compute_exclusion(row, **params):
         reasons.append(">10 MT indicator")
     if params["exclude_capacity"] and cap > params["capacity_threshold"]:
         reasons.append(f"Installed capacity {cap:.0f} MW > {params['capacity_threshold']} MW")
-    if params["exclude_power_prod"] and ur_pp_pct > params["power_prod_threshold"]:
+    if params["exclude_power_prod"] and cmp(ur_pp_pct, params["power_prod_threshold"]):
         reasons.append(f"Coal power production {ur_pp_pct:.2f}% > {params['power_prod_threshold']}%")
 
     # 4️⃣  S&P-specific rules ---------------------------------------------------
@@ -296,7 +298,7 @@ def compute_exclusion(row, **params):
             reasons.append(f"SP power revenue  {sp_pow:.2f}% > {params['sp_power_threshold']}%")
         if params["sp_level2_checkbox"]:
             combo = sp_min + sp_pow
-            if combo > params["sp_level2_threshold"]:
+            if cmp(combo, params["sp_level2_threshold"]):
                 reasons.append(f"SP level-2 combined {combo:.2f}% > {params['sp_level2_threshold']}%")
 
     # 5️⃣  Urgewald-specific rules ---------------------------------------------
@@ -307,7 +309,7 @@ def compute_exclusion(row, **params):
             reasons.append(f"UR power revenue  {ur_rev_pct:.2f}% > {params['ur_power_threshold']}%")
         if is_mixed       and params["ur_mixed_checkbox"]  and ur_rev_pct > params["ur_mixed_threshold"]:
             reasons.append(f"UR mixed revenue  {ur_rev_pct:.2f}% > {params['ur_mixed_threshold']}%")
-        if params["ur_level2_checkbox"] and ur_rev_pct > params["ur_level2_threshold"]:
+        if params["ur_level2_checkbox"] and cmp(ur_rev_pct, params["ur_level2_threshold"]):
             reasons.append(f"UR level-2 revenue {ur_rev_pct:.2f}% > {params['ur_level2_threshold']}%")
 
     # 6️⃣  expansion keywords ---------------------------------------------------
@@ -332,6 +334,12 @@ def main():
     sp_file    = st.sidebar.file_uploader("Upload SPGlobal Excel file", type=["xlsx"])
     ur_file    = st.sidebar.file_uploader("Upload Urgewald Excel file", type=["xlsx"])
     st.sidebar.markdown("---")
+    # ─── put this right after st.sidebar.markdown("---") in MAIN ──────────────
+    inclusive_ge = st.sidebar.checkbox(
+        "Use ≥ instead of > for Power %, UR L2 and SP L2 thresholds",  # label
+        value=True                                                     # default ON
+    )
+
 
     with st.sidebar.expander("Mining", expanded=True):
         ur_mining_checkbox  = st.checkbox("UR: Exclude mining-only", False)
@@ -430,6 +438,8 @@ def main():
             "sp_level2_threshold":  sp_level2_threshold,
             # expansions
             "expansion_exclude":    expansion_exclude,
+            # inclusive ≥ toggle
+            "inclusive_ge":      inclusive_ge,
         }
 
         def apply_filter(df):
