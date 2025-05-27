@@ -432,10 +432,18 @@ def main():
         "BB Ticker", "ISIN equity", "LEI", "Excluded", "Exclusion Reasons"
     ]
     def finalize(d):
-        for c in final_cols:
-            if c not in d:
-                d[c] = ""
-        return d[final_cols]
+    for c in final_cols:
+        if c not in d:
+            d[c] = ""
+    # strip the trailing “ Equity ” (and any whitespace before it) from BB tickers
+    if "BB Ticker" in d:
+        d["BB Ticker"] = (
+            d["BB Ticker"]
+              .astype(str)
+              .str.replace(r"\s*Equity\s*$", "", regex=True)
+              .str.strip()
+        )
+    return d[final_cols]
 
     excluded_final = finalize(excluded_final)
     retained_merged = finalize(retained_merged)
