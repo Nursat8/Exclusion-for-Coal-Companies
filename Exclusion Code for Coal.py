@@ -253,50 +253,51 @@ def compute_exclusion(row, p):
 
 # ───────── Streamlit UI ───────────────────────────────────────────────────────
 def main():
-    st.set_page_config(page_title="Coal Exclusion Filter – Merged & Excluded", layout="wide")
-    st.title("Coal Exclusion Filter (per-threshold “≥” toggles)")
+    st.set_page_config(page_title="Coal Exclusion Filter – per-threshold ≥ toggles", layout="wide")
+    st.title("Coal Exclusion Filter")
 
     # files
     st.sidebar.header("Files & Sheets")
-    sp_sheet = st.sidebar.text_input("SPGlobal Sheet", "Sheet1")
-    ur_sheet = st.sidebar.text_input("Urgewald Sheet", "GCEL 2024")
+    sp_sheet = st.sidebar.text_input("SPGlobal sheet", "Sheet1")
+    ur_sheet = st.sidebar.text_input("Urgewald sheet", "GCEL 2024")
     sp_file  = st.sidebar.file_uploader("SPGlobal .xlsx", type=["xlsx"])
     ur_file  = st.sidebar.file_uploader("Urgewald .xlsx", type=["xlsx"])
 
-    # helper to make paired inputs compact
-    def num_and_ge(label, default, key):
+    # helper for numeric + ≥ checkbox
+    def num_ge(label, default, key):
         col1, col2 = st.columns([3, 1])
         with col1:
             val = st.number_input(label, value=default, key=f"{key}_val")
         with col2:
-            ge = st.checkbox("≥", value=False, key=f"{key}_ge")
+            ge  = st.checkbox("≥", value=False, key=f"{key}_ge")
         return val, ge
 
-    # Mining box
+    # Mining
     with st.sidebar.expander("Mining thresholds", True):
-        ur_mining_cb  = st.checkbox("UR: apply Mining-only rule", False)
-        ur_mining_thr, ur_mining_ge = num_and_ge("UR Mining threshold (%)", 5.0, "urmin")
-        sp_mining_cb  = st.checkbox("SP: apply Mining-only rule", True)
-        sp_mining_thr, sp_mining_ge = num_and_ge("SP Mining threshold (%)", 5.0, "spmin")
+        ur_mining_cb = st.checkbox("UR: apply mining-only rule", False)
+        ur_mining_thr, ur_mining_ge = num_ge("UR Mining threshold (%)", 5.0, "urmin")
+        sp_mining_cb = st.checkbox("SP: apply mining-only rule", True)
+        sp_mining_thr, sp_mining_ge = num_ge("SP Mining threshold (%)", 5.0, "spmin")
 
-    # Power box
+    # Power
     with st.sidebar.expander("Power thresholds", True):
-        ur_power_cb  = st.checkbox("UR: apply Power-only rule", False)
-        ur_power_thr, ur_power_ge = num_and_ge("UR Power threshold (%)", 20.0, "urpow")
-        sp_power_cb  = st.checkbox("SP: apply Power-only rule", True)
-        sp_power_thr, sp_power_ge = num_and_ge("SP Power threshold (%)", 20.0, "sppow")
-        power_prod_thr, power_prod_ge = num_and_ge("Coal power production %", 20.0, "cpp")
-        capacity_thr,   capacity_ge   = num_and_ge("Installed capacity (MW)", 10_000.0, "cap")
-        exclude_mt = st.checkbox("Flag >10 MT", True)
+        ur_power_cb = st.checkbox("UR: apply power-only rule", False)
+        ur_power_thr, ur_power_ge = num_ge("UR Power threshold (%)", 20.0, "urpow")
+        sp_power_cb = st.checkbox("SP: apply power-only rule", True)
+        sp_power_thr, sp_power_ge = num_ge("SP Power threshold (%)", 20.0, "sppow")
 
-    # Mixed & Level 2
+        power_prod_thr, power_prod_ge = num_ge("Coal power production %", 20.0, "cpp")
+        capacity_thr, capacity_ge = num_ge("Installed capacity (MW)", 10_000.0, "cap")
+        exclude_mt = st.checkbox("Flag >10 MT indicator", True)
+
+    # Mixed + Level-2
     with st.sidebar.expander("Mixed & Level-2", False):
-        ur_mixed_cb  = st.checkbox("UR: Mixed Mining+Power L1", False)
-        ur_mixed_thr, ur_mixed_ge   = num_and_ge("UR Mixed threshold (%)", 25.0, "urmix")
-        ur_L2_cb     = st.checkbox("UR: Level-2", False)
-        ur_L2_thr,  ur_L2_ge        = num_and_ge("UR Level-2 threshold (%)", 10.0, "url2")
-        sp_L2_cb     = st.checkbox("SP: Level-2 (mining+power)", False)
-        sp_L2_thr,  sp_L2_ge        = num_and_ge("SP Level-2 threshold (%)", 10.0, "spl2")
+        ur_mixed_cb = st.checkbox("UR: mixed mining+power rule", False)
+        ur_mixed_thr, ur_mixed_ge = num_ge("UR Mixed threshold (%)", 25.0, "urmix")
+        ur_L2_cb = st.checkbox("UR: Level-2", False)
+        ur_L2_thr, ur_L2_ge = num_ge("UR Level-2 threshold (%)", 10.0, "url2")
+        sp_L2_cb = st.checkbox("SP: Level-2 (mining+power)", False)
+        sp_L2_thr, sp_L2_ge = num_ge("SP Level-2 threshold (%)", 10.0, "spl2")
 
     # Expansion
     with st.sidebar.expander("Expansion keywords"):
@@ -307,13 +308,15 @@ def main():
         st.stop()
 
     if not sp_file or not ur_file:
-        st.warning("Please upload both files"); st.stop()
+        st.warning("Please upload both files")
+        st.stop()
 
-    # Load, merge, filter
+    # Load & merge
     sp_df = load_spglobal(sp_file, sp_sheet)
     ur_df = load_urgewald(ur_file, ur_sheet)
     if sp_df.empty or ur_df.empty:
-        st.warning("One of the sheets could not be loaded"); st.stop()
+        st.warning("One of the sheets could not be loaded")
+        st.stop()
 
     merged_sp, ur_only = merge_ur_into_sp(sp_df, ur_df)
     for df in (merged_sp, ur_only):
@@ -328,9 +331,9 @@ def main():
         (sp_unmerged["Generation (Thermal Coal)"] > 0)
     ]
 
-    # pack params
+    # param dict
     params = dict(
-        # toggles / thresholds
+        # MT / capacity / power-prod
         exclude_mt=True,
         exclude_capacity=True,
         capacity_threshold=capacity_thr,
@@ -364,10 +367,11 @@ def main():
         ur_level2_threshold=ur_L2_thr,
         ur_level2_ge=ur_L2_ge,
 
-        # misc
+        # expansion
         expansion_exclude=[k.strip() for k in expansion_exclude if k.strip()],
     )
 
+    # apply filter
     def apply(df):
         if df.empty:
             return df.assign(Excluded=False, **{"Exclusion Reasons": ""})
@@ -379,16 +383,16 @@ def main():
 
     excluded = pd.concat([d[d.Excluded] for d in (sp_merged, sp_only, ur_unmerged)], ignore_index=True)
     retained_merged = sp_merged[~sp_merged.Excluded]
-    sp_retained     = sp_only   [~sp_only  .Excluded]
+    sp_retained     = sp_only  [~sp_only .Excluded]
     ur_retained     = ur_unmerged[~ur_unmerged.Excluded]
 
     cols = [
-        "SP_ENTITY_NAME", "SP_ENTITY_ID", "SP_COMPANY_ID", "SP_ISIN", "SP_LEI",
-        "Coal Industry Sector", "Company", ">10MT / >5GW",
+        "SP_ENTITY_NAME","SP_ENTITY_ID","SP_COMPANY_ID","SP_ISIN","SP_LEI",
+        "Coal Industry Sector","Company",">10MT / >5GW",
         "Installed Coal Power Capacity (MW)",
-        "Coal Share of Power Production", "Coal Share of Revenue", "expansion",
-        "Generation (Thermal Coal)", "Thermal Coal Mining",
-        "BB Ticker", "ISIN equity", "LEI", "Excluded", "Exclusion Reasons",
+        "Coal Share of Power Production","Coal Share of Revenue","expansion",
+        "Generation (Thermal Coal)","Thermal Coal Mining",
+        "BB Ticker","ISIN equity","LEI","Excluded","Exclusion Reasons",
     ]
     for df in (excluded, retained_merged, sp_retained, ur_retained):
         for c in cols:
