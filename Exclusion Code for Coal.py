@@ -153,53 +153,63 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
 
 
 # ───────── merge (unchanged) ──────────────────────────────────────────────────
-def merge_ur_into_sp_opt(sp_df, ur_df):
+# ───────── improved merge: exact ISIN → LEI → Name ───────────────────────────
+def merge_ur_into_sp_opt(sp_df: pd.DataFrame, ur_df: pd.DataFrame):
+    """Return (merged_sp, ur_rows_without_match)"""
+    # 0️⃣ – working copies ----------------------------------------------------
     sp = sp_df.copy().astype(object)
     ur = ur_df.copy().astype(object)
 
-    sp["norm_isin"] = sp.get("SP_ISIN", "").astype(str).apply(normalize_key)
-    sp["norm_lei"] = sp.get("SP_LEI", "").astype(str).apply(normalize_key)
-    sp["norm_name"] = sp.get("SP_ENTITY_NAME", "").astype(str).apply(normalize_key)
+    # 1️⃣ – helpers -----------------------------------------------------------
+    def norm(s: str) -> str:
+        """Lower-case, strip, remove punctuation & double spaces."""
+        return re.sub(r"[^\w\s]", "", s.lower()).strip()
 
-    for col in ["ISIN equity", "LEI", "Company"]:
-        if col not in ur:
-            ur[col] = ""
-    ur["norm_isin"] = ur["ISIN equity"].astype(str).apply(normalize_key)
-    ur["norm_lei"] = ur["LEI"].astype(str).apply(normalize_key)
-    ur["norm_company"] = ur["Company"].astype(str).apply(normalize_key)
+    # 2️⃣ – pre-compute lookup tables for **every** SP row --------------------
+    by_isin = {}   # isin  -> sp-idx  (first one wins)
+    by_lei  = {}   # lei   -> sp-idx
+    by_name = {}   # name  -> sp-idx
+    for i, r in sp.iterrows():
+        isin = str(r.get("SP_ISIN", "")).strip()
+        lei  = str(r.get("SP_LEI",  "")).strip()
+        name = str(r.get("SP_ENTITY_NAME", "")).strip()
+        if isin: by_isin.setdefault(isin.lower(), i)
+        if lei:  by_lei .setdefault(lei .lower(), i)
+        if name: by_name.setdefault(norm(name), i)
 
-    isin_map = {k: i for i, k in enumerate(sp["norm_isin"]) if k}
-    lei_map = {k: i for i, k in enumerate(sp["norm_lei"]) if k}
-    name_map = {k: i for i, k in enumerate(sp["norm_name"]) if k}
+    # 3️⃣ – iterate through Urgewald rows and merge where we can --------------
+    ur_left_over = []
+    for _, row in ur.iterrows():
+        isin  = str(row.get("ISIN equity", "")).strip().lower()
+        lei   = str(row.get("LEI",         "")).strip().lower()
+        name  = norm(str(row.get("Company", "")).strip())
 
-    ur_not = []
-    for _, r in ur.iterrows():
         target = None
-        if r["norm_isin"] in isin_map:
-            target = isin_map[r["norm_isin"]]
-        elif r["norm_lei"] in lei_map:
-            target = lei_map[r["norm_lei"]]
-        elif r["norm_company"] in name_map:
-            target = name_map[r["norm_company"]]
+        if isin and isin in by_isin:
+            target = by_isin[isin]
+        elif lei and lei in by_lei:
+            target = by_lei[lei]
+        elif name and name in by_name:
+            target = by_name[name]
 
-        if target is not None:
-            for c, v in r.items():
-                if c.startswith("norm_"):
-                    continue
-                if c not in sp or pd.isna(sp.at[target, c]) or str(sp.at[target, c]).strip() == "":
-                    sp.at[target, c] = v
-            sp.at[target, "Merged"] = True
-        else:
-            ur_not.append(r)
+        if target is None:
+            ur_left_over.append(row)
+            continue
 
+        # 4️⃣ – copy any missing data from Urgewald into the SP row -----------
+        for col, val in row.items():
+            if pd.isna(val) or col in ("ISIN equity", "LEI", "Company"):
+                continue
+            if col not in sp.columns or pd.isna(sp.at[target, col]) or str(sp.at[target, col]).strip() == "":
+                sp.at[target, col] = val
+        sp.at[target, "Merged"] = True
+
+    # 5️⃣ – clean-up & return --------------------------------------------------
     sp["Merged"] = sp.get("Merged", False).fillna(False)
-    ur_only = pd.DataFrame(ur_not)
-    ur_only["Merged"] = False
 
-    for c in [c for c in sp.columns if c.startswith("norm_")]:
-        sp.drop(columns=c, inplace=True, errors="ignore")
-    for c in [c for c in ur_only.columns if c.startswith("norm_")]:
-        ur_only.drop(columns=c, inplace=True, errors="ignore")
+    ur_only = pd.DataFrame(ur_left_over)
+    if not ur_only.empty:
+        ur_only["Merged"] = False
 
     return sp, ur_only
 
