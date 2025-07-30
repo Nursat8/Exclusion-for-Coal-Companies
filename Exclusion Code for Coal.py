@@ -282,11 +282,6 @@ def compute_exclusion(row, **params):
     is_mining_only, is_power_only, is_mixed = _classify_sector(tokens, strict=strict_mode)
 
 
-     # 🔹 Ensures that company only in specific sector🔹
-    is_mining_only = bool(mining_parts) and not power_parts and not other_parts
-    is_power_only = bool(power_parts) and not mining_parts and not other_parts
-    is_mixed = bool(mining_parts) and bool(power_parts) and not other_parts
-
     # 🔹 This code block adds exclusion reasons based on general (non-revenue) filters if certain conditions are met. 🔹
     if params["exclude_mt"] and "10mt" in prod_str:
         reasons.append(">10 MT indicator")
