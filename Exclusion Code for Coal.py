@@ -458,7 +458,6 @@ def main():
         exclude_power_prod=exclude_power_prod, power_prod_threshold=power_prod_threshold, power_prod_ge=power_prod_ge,
         exclude_capacity=exclude_capacity, capacity_threshold=capacity_threshold, capacity_ge=capacity_ge,
         expansion_exclude=[e.strip() for e in expansion_exclude if e.strip()],
-        expansion_exclude=[e.strip() for e in expansion_exclude if e.strip()],
         ur_sector_services_inclusive=ur_sector_services_inclusive,
     )
 
