@@ -176,12 +176,12 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
     ur["norm_lei"] = ur["LEI"].astype(str).apply(normalize_key)
     ur["norm_company"] = ur["Company"].astype(str).apply(normalize_key)
 
-    # 🔹 Creating dictionary with identifier and index i 🔹
+    # 🔹 Creating a dictionary with the identifier and index i. These maps make it quick and easy to match a company from the Urgewald file to a row in the SP file based on a shared ID like ISIN, LEI, or name. 🔹
     isin_map = {k: i for i, k in enumerate(sp["norm_isin"]) if k}
     lei_map = {k: i for i, k in enumerate(sp["norm_lei"]) if k}
     name_map = {k: i for i, k in enumerate(sp["norm_name"]) if k}
 
-    # 🔹 ur_not is empty list for not matched companies and look for matching. If a match is found, target becomes the index of the SPGlobal row to merge into. 🔹
+    # 🔹 ur_not is empty list for not matched companies and look for matching. If a match is found, the target becomes the index of the SPGlobal row to merge into. 🔹
     ur_not = []
     for _, r in ur.iterrows():
         target = None
@@ -192,7 +192,7 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
         elif r["norm_company"] in name_map:
             target = name_map[r["norm_company"]]
 
-         # 🔹 Merging process. c: column name from Urgewald, v: the value for that column in the current row 🔹
+        # 🔹 This lets you enrich SPGlobal data with missing info from Urgewald — only when they match by ISIN, LEI, or name. 🔹
         if target is not None:
             for c, v in r.items():
                 if c.startswith("norm_"):    # 🔹 These columns like "norm_isin", "norm_lei" etc. were only used for matching — they are not real data. So we skip them. We don’t want to merge them into the final DataFrame. 🔹
@@ -202,7 +202,7 @@ def merge_ur_into_sp_opt(sp_df, ur_df):
             sp.at[target, "Merged"] = True
         else:
             ur_not.append(r)
-
+    # 🔹 This code finalizes the merge by clearly marking which rows were merged and which were not.🔹 
     sp["Merged"] = sp.get("Merged", False).fillna(False) # 🔹 Ensures that the "Merged" column exists in sp and has only True or False values. 🔹
     ur_only = pd.DataFrame(ur_not)
     ur_only["Merged"] = False
@@ -236,7 +236,7 @@ def compute_exclusion(row, **params):
     ur_pp_pct = row.get("Coal Share of Power Production", 0.0)
     ur_pp_pct = ur_pp_pct if ur_pp_pct > 1 else ur_pp_pct * 100
 
-    # 🔹 misc 🔹
+    # 🔹 This section extracts and prepares key values from each row of the data to help check exclusion rules:🔹
     prod_str = str(row.get(">10MT / >5GW", "")).lower()
     cap = row.get("Installed Coal Power Capacity (MW)", 0.0)
     expansion = str(row.get("expansion", "")).lower()
@@ -258,7 +258,7 @@ def compute_exclusion(row, **params):
     is_power_only = bool(power_parts) and not mining_parts and not other_parts
     is_mixed = bool(mining_parts) and bool(power_parts) and not other_parts
 
-    # 🔹 global screens with exclusion reasons output 🔹
+    # 🔹 This code block adds exclusion reasons based on general (non-revenue) filters if certain conditions are met. 🔹
     if params["exclude_mt"] and "10mt" in prod_str:
         reasons.append(">10 MT indicator")
 
@@ -289,7 +289,7 @@ def compute_exclusion(row, **params):
                     f"SP level-2 combined {combo:.2f}% {op(params['sp_level2_ge'])} {params['sp_level2_threshold']}%"
                 )
 
-    # 🔹 Urgewald rules with exclusion reasons output 🔹
+    # 🔹 This code block checks Urgewald revenue-based exclusion rules — and adds detailed reasons for exclusion based on the company’s sector type (mining, power, or mixed) and revenue percentage.🔹
     if has_ur:
         if is_mining_only and params["ur_mining_checkbox"] and test(ur_rev_pct, params["ur_mining_threshold"], params["ur_mining_ge"]):
             reasons.append(
@@ -308,7 +308,7 @@ def compute_exclusion(row, **params):
                 f"UR level-2 revenue {ur_rev_pct:.2f}% {op(params['ur_level2_ge'])} {params['ur_level2_threshold']}%"
             )
 
-    # 🔹 expansion text 🔹
+    # 🔹 This short block checks if a company mentions coal expansion in its description — and flags it for exclusion if any excluded keywords are found. 🔹
     for kw in params["expansion_exclude"]:
         if kw.lower() in expansion:
             reasons.append(f"Expansion matched '{kw}'")
@@ -392,7 +392,8 @@ def main():
     if sp_df.empty or ur_df.empty:
         st.warning("Error loading data")
         st.stop()
-
+        
+    # 🔹 This code ensures that the Merged column is correctly set for both datasets after trying to match and merge the SPGlobal and Urgewald data. 🔹
     merged_sp, ur_only = merge_ur_into_sp_opt(sp_df, ur_df)
     for d in (merged_sp, ur_only):
         d["Merged"] = d.get("Merged", False).fillna(False)
@@ -403,7 +404,7 @@ def main():
     )]
     ur_unmerged = ur_only[~ur_only.Merged]
 
-    # 🔹 params 🔹
+    # 🔹 This dictionary holds all the toggle values, thresholds, and comparison types (≥ or >) chosen by the user, so the filtering logic later can work properly.🔹
     params = dict(
         ur_mining_checkbox=ur_mining_checkbox, ur_mining_threshold=ur_mining_threshold, ur_mining_ge=ur_mining_ge,
         sp_mining_checkbox=sp_mining_checkbox, sp_mining_threshold=sp_mining_threshold, sp_mining_ge=sp_mining_ge,
@@ -418,7 +419,7 @@ def main():
         expansion_exclude=[e.strip() for e in expansion_exclude if e.strip()]
     )
 
-    # 🔹 Apply. If the DataFrame is empty, return it with Excluded = False and empty "Exclusion Reasons". 🔹
+    # 🔹The apply() function runs the filtering rules for each row in the dataset and adds the results as two new columns: Excluded (whether the row meets exclusion criteria) and Exclusion Reasons 🔹
     def apply(df):
         if df.empty:
             return df.assign(Excluded=False, **{"Exclusion Reasons": ""})
@@ -445,6 +446,8 @@ def main():
         "Generation (Thermal Coal)", "Thermal Coal Mining",
         "BB Ticker", "ISIN equity", "LEI", "Excluded", "Exclusion Reasons"
     ]
+    
+    # 🔹 This function prepares the final dataset for export by: Making sure all needed columns are present, Cleaning up ticker formatting, Returning columns in the right order🔹
     def finalize(d):
         for c in final_cols:
             if c not in d:
@@ -466,6 +469,7 @@ def main():
     ur_retained = finalize(ur_retained)
     
     buf = io.BytesIO()
+     # 🔹 It generates an Excel file in memory with 4 neatly organized sheets containing the filtered results — ready for download in Streamlit. 🔹
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
         excluded_final.to_excel(w, "Excluded Companies", index=False)
         retained_merged.to_excel(w, "Retained Companies", index=False)
