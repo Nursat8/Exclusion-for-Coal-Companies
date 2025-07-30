@@ -364,7 +364,7 @@ def main():
     # 🔹 Sector mode for UR revenue rules 🔹
     with st.sidebar.expander("UR Sector Mode", True):
         ur_sector_services_inclusive = st.checkbox(
-            "Treat 'services' (and similar) as neutral — allow mining/power + services",
+            "Allow “+ services” in mining/power sector match",
             value=False
         )
 
