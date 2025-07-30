@@ -33,7 +33,7 @@ def make_columns_unique(df):
     df.columns = new_cols
     return df
 
-# 🔹 Performs partial, case-insensitive, and flexible column renaming using synonyms/patterns. 🔹
+# 🔹 It renames columns in a table (a DataFrame) by looking for similar names, even if they’re not exactly the same. 🔹
 def fuzzy_rename_columns(df, rename_map):
     used = set()
     for final_name, pats in rename_map.items():
@@ -78,7 +78,7 @@ def load_spglobal(file, sheet_name="Sheet1"):
         sp_df.columns = final_cols                        # 🔹 Assigns the cleaned and merged column names (from earlier using zip(row5, row6)) to the DataFrame. 🔹
         sp_df = make_columns_unique(sp_df)
 
-        # 🔹 Canonical names for integrity🔹
+        # 🔹 Standardized names for integrity🔹
         rename_map_sp = {
             "SP_ENTITY_NAME": ["sp entity name", "entity name"],
             "SP_ENTITY_ID": ["sp entity id", "entity id"],
@@ -96,11 +96,11 @@ def load_spglobal(file, sheet_name="Sheet1"):
         }
         sp_df = fuzzy_rename_columns(sp_df, rename_map_sp).astype(object)
 
-        # 🔹 This is a list of key numeric columns in the SPGlobal file that need to be properly converted to float numbers (like percentages or MW values). 🔹
+        # 🔹 This is a list of key numeric columns in the file that need to be properly converted to float numbers (like percentages or MW values). 🔹
         for col in [
             "Thermal Coal Mining", "Generation (Thermal Coal)",
             "Coal Share of Revenue", "Coal Share of Power Production",
-            "Installed Coal Power Capacity (MW)"
+            "Installed Coal Power Capacity (MW)", "Annual Coal Production (in million metric tons)"
         ]:
             if col in sp_df:
                 sp_df[col] = sp_df[col].apply(to_float)
@@ -110,7 +110,7 @@ def load_spglobal(file, sheet_name="Sheet1"):
         st.error(f"Error loading SPGlobal: {e}")
         return pd.DataFrame()
 
-
+# 🔹 The load_urgewald function reads the Urgewald Excel file🔹
 def load_urgewald(file, sheet_name="GCEL 2024"):
     try:
         wb = openpyxl.load_workbook(file, data_only=True)
@@ -119,14 +119,14 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
         full_df = pd.DataFrame(data)
         if full_df.empty:
             raise ValueError("Urgewald file is empty.")
-
+# 🔹 Removes any "Parent Company" columns, cleans up the headers, fixes duplicate column names, and converts key numbers (like revenue %) into proper numeric values. It prepares the data so it’s ready to be used in filtering or analysis.🔹
         header = full_df.iloc[0].fillna("")
         keep = header.str.strip().str.lower() != "parent company"
         ur_df = full_df.iloc[1:].reset_index(drop=True).loc[:, keep]
         ur_df.columns = [c for c in header if str(c).strip().lower() != "parent company"]
         ur_df = make_columns_unique(ur_df)
        
-        # 🔹 Canonical names for integrity🔹
+        # 🔹 Standardized names for integrity🔹
         rename_map_ur = {
             "Company": ["company", "issuer name"],
             "ISIN equity": ["isin equity", "isin(eq)", "isin eq"],
@@ -143,11 +143,11 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
         }
         ur_df = fuzzy_rename_columns(ur_df, rename_map_ur).astype(object)
 
-        # 🔹 This is a list of key numeric columns in the SPGlobal file that need to be properly converted to float numbers (like percentages or MW values). 🔹
+        # 🔹 This is a list of key numeric columns in the file that need to be properly converted to float numbers (like percentages or MW values). 🔹
         for col in [
             "Thermal Coal Mining", "Generation (Thermal Coal)",
             "Coal Share of Revenue", "Coal Share of Power Production",
-            "Installed Coal Power Capacity (MW)"
+            "Installed Coal Power Capacity (MW)", "Annual Coal Production (in million metric tons)"
         ]:
             if col in ur_df:
                 ur_df[col] = ur_df[col].apply(to_float)
