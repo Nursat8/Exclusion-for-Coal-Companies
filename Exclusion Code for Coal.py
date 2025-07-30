@@ -223,7 +223,7 @@ def test(val, thr, ge):
 def op(ge: bool) -> str:
     return "≥" if ge else ">"
 
-# 🔹🔹🔹 Compute_exclusion (comparisons now use test()) 🔹🔹🔹   
+# 🔹🔹🔹 Compute_exclusion 🔹🔹🔹   
 def compute_exclusion(row, **params):
     reasons = []
 
