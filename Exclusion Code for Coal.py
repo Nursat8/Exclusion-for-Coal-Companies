@@ -53,6 +53,37 @@ def fuzzy_rename_columns(df, rename_map):
 def normalize_key(s):
     return re.sub(r"[^\w\s]", "", re.sub(r"\s+", " ", s.lower())).strip()
 
+# ── Sector parsing helpers (strict vs inclusive) ──────────────────────────────
+def _split_sector_tokens(sector_raw: str):
+    # split on ; , / & | + and newlines
+    return [p.strip().lower() for p in re.split(r"[;,/&|+]|(?:\s*\n\s*)", str(sector_raw)) if p and p.strip()]
+
+def _classify_sector(tokens, strict: bool):
+    mining_kw  = ("mining", "extraction", "producer")
+    power_kw   = ("power", "generation", "utility", "electric")
+    # tokens we treat as "neutral" when inclusive mode is ON
+    neutral_kw = ("service", "services", "trading", "logistics", "transport",
+                  "equipment", "maintenance", "engineering", "contract", "contractor",
+                  "support", "supply", "marketing", "retail", "wholesale", "sales")
+
+    mining_parts  = [t for t in tokens if any(k in t for k in mining_kw)]
+    power_parts   = [t for t in tokens if any(k in t for k in power_kw)]
+
+    if strict:
+        other_parts = [t for t in tokens if t not in mining_parts + power_parts]
+        is_mining_only = bool(mining_parts) and not power_parts and not other_parts
+        is_power_only  = bool(power_parts)  and not mining_parts and not other_parts
+        is_mixed       = bool(mining_parts) and bool(power_parts) and not other_parts
+        return is_mining_only, is_power_only, is_mixed
+    else:
+        neutral_parts = [t for t in tokens if any(k in t for k in neutral_kw)]
+        other_parts   = [t for t in tokens if t not in mining_parts + power_parts + neutral_parts]
+        # Inclusive: allow "mining + services" and "power + services"
+        is_mining_only = bool(mining_parts) and not bool(power_parts) and not bool(other_parts)
+        is_power_only  = bool(power_parts)  and not bool(mining_parts) and not bool(other_parts)
+        is_mixed       = bool(mining_parts) and bool(power_parts) and not bool(other_parts)
+        return is_mining_only, is_power_only, is_mixed
+
 
 # 🔹 loaders and data preperation that headers would be in proper place and remove double rows 🔹
 def load_spglobal(file, sheet_name="Sheet1"):
@@ -245,13 +276,11 @@ def compute_exclusion(row, **params):
     has_ur = bool(str(row.get("Company", "")).strip())
 
     # 🔹 sectors 🔹
-    sector_raw = str(row.get("Coal Industry Sector", "")).lower()
-    mining_kw = ("mining", "extraction", "producer")
-    power_kw = ("power", "generation", "utility", "electric")
-    tokens = [p.strip() for p in re.split(r"[;,/]|(?:\s*\n\s*)", sector_raw) if p.strip()]
-    mining_parts = [p for p in tokens if any(k in p for k in mining_kw)]
-    power_parts = [p for p in tokens if any(k in p for k in power_kw)]
-    other_parts = [p for p in tokens if p not in mining_parts + power_parts]
+    sector_raw = row.get("Coal Industry Sector", "")
+    tokens = _split_sector_tokens(sector_raw)
+    strict_mode = not params.get("ur_sector_services_inclusive", False)
+    is_mining_only, is_power_only, is_mixed = _classify_sector(tokens, strict=strict_mode)
+
 
      # 🔹 Ensures that company only in specific sector🔹
     is_mining_only = bool(mining_parts) and not power_parts and not other_parts
@@ -291,6 +320,7 @@ def compute_exclusion(row, **params):
 
     # 🔹 This code block checks Urgewald revenue-based exclusion rules — and adds detailed reasons for exclusion based on the company’s sector type (mining, power, or mixed) and revenue percentage.🔹
     if has_ur:
+        # Level‑1 revenue (mining-only / power-only / mixed according to mode)
         if is_mining_only and params["ur_mining_checkbox"] and test(ur_rev_pct, params["ur_mining_threshold"], params["ur_mining_ge"]):
             reasons.append(
                 f"UR mining revenue {ur_rev_pct:.2f}% {op(params['ur_mining_ge'])} {params['ur_mining_threshold']}%"
@@ -303,11 +333,12 @@ def compute_exclusion(row, **params):
             reasons.append(
                 f"UR mixed revenue {ur_rev_pct:.2f}% {op(params['ur_mixed_ge'])} {params['ur_mixed_threshold']}%"
             )
-        if params["ur_level2_checkbox"] and test(ur_rev_pct, params["ur_level2_threshold"], params["ur_level2_ge"]):
+        
+        any_coal_sector = is_mining_only or is_power_only or is_mixed
+        if any_coal_sector and params["ur_level2_checkbox"] and test(ur_rev_pct, params["ur_level2_threshold"], params["ur_level2_ge"]):
             reasons.append(
                 f"UR level-2 revenue {ur_rev_pct:.2f}% {op(params['ur_level2_ge'])} {params['ur_level2_threshold']}%"
             )
-
     # 🔹 This short block checks if a company mentions coal expansion in its description — and flags it for exclusion if any excluded keywords are found. 🔹
     for kw in params["expansion_exclude"]:
         if kw.lower() in expansion:
@@ -339,6 +370,11 @@ def main():
             g = st.checkbox("≥", value=False, key=f"{key}_ge")
         return v, g
 
+    with st.sidebar.expander("UR Sector Mode", True):
+        ur_sector_services_inclusive = st.checkbox(
+            "Treat 'services' (and similar) as neutral — allow mining/power + services",
+            value=False
+        )
     # 🔹 Mining expander (unchanged block order) 🔹
     with st.sidebar.expander("Mining", True):
         ur_mining_checkbox = st.checkbox("UR: Exclude mining-only", False)
@@ -347,6 +383,8 @@ def main():
         sp_mining_threshold, sp_mining_ge = num_ge("SP Mining threshold (%)", 5.0, "sp_min")
         exclude_mt = st.checkbox("Exclude >10MT", True)
         mt_threshold = st.number_input("MT threshold (informational)", value=10.0)
+      
+    
 
     # 🔹 Power expander 🔹 
     with st.sidebar.expander("Power", True):
@@ -417,6 +455,8 @@ def main():
         exclude_power_prod=exclude_power_prod, power_prod_threshold=power_prod_threshold, power_prod_ge=power_prod_ge,
         exclude_capacity=exclude_capacity, capacity_threshold=capacity_threshold, capacity_ge=capacity_ge,
         expansion_exclude=[e.strip() for e in expansion_exclude if e.strip()]
+        expansion_exclude=[e.strip() for e in expansion_exclude if e.strip()],
+        ur_sector_services_inclusive=ur_sector_services_inclusive,
     )
 
     # 🔹The apply() function runs the filtering rules for each row in the dataset and adds the results as two new columns: Excluded (whether the row meets exclusion criteria) and Exclusion Reasons 🔹
