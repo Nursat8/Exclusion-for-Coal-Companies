@@ -360,6 +360,13 @@ def main():
     sp_file = st.sidebar.file_uploader("Upload SPGlobal Excel file", type=["xlsx"])
     ur_file = st.sidebar.file_uploader("Upload Urgewald Excel file", type=["xlsx"])
     st.sidebar.markdown("---")
+    
+    # 🔹 Sector mode for UR revenue rules 🔹
+    with st.sidebar.expander("UR Sector Mode", True):
+        ur_sector_services_inclusive = st.checkbox(
+            "Treat 'services' (and similar) as neutral — allow mining/power + services",
+            value=False
+        )
 
     # 🔹 helper: numeric + ≥ 🔹 
     def num_ge(label, default, key):
@@ -370,11 +377,7 @@ def main():
             g = st.checkbox("≥", value=False, key=f"{key}_ge")
         return v, g
 
-    with st.sidebar.expander("UR Sector Mode", True):
-        ur_sector_services_inclusive = st.checkbox(
-            "Treat 'services' (and similar) as neutral — allow mining/power + services",
-            value=False
-        )
+
     # 🔹 Mining expander (unchanged block order) 🔹
     with st.sidebar.expander("Mining", True):
         ur_mining_checkbox = st.checkbox("UR: Exclude mining-only", False)
