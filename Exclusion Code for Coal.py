@@ -100,7 +100,7 @@ def load_spglobal(file, sheet_name="Sheet1"):
         for col in [
             "Thermal Coal Mining", "Generation (Thermal Coal)",
             "Coal Share of Revenue", "Coal Share of Power Production",
-            "Installed Coal Power Capacity", "Annual Coal Production"
+            "Installed Coal Power Capacity (MW)", "Annual Coal Production (in million metric tons)"
         ]:
             if col in sp_df:
                 sp_df[col] = sp_df[col].apply(to_float)
@@ -147,7 +147,7 @@ def load_urgewald(file, sheet_name="GCEL 2024"):
         for col in [
             "Thermal Coal Mining", "Generation (Thermal Coal)",
             "Coal Share of Revenue", "Coal Share of Power Production",
-            "Installed Coal Power Capacity", "Annual Coal Production"
+            "Installed Coal Power Capacity (MW)", "Annual Coal Production (in million metric tons)"
         ]:
             if col in ur_df:
                 ur_df[col] = ur_df[col].apply(to_float)
