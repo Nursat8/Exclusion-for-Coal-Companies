@@ -366,11 +366,11 @@ def main():
 
     # 🔹 UR Level-2 🔹
     with st.sidebar.expander("UR Level 2", False):
-        ur_level2_checkbox = st.checkbox("UR: Apply Level 2", False)
+        ur_level2_checkbox = st.checkbox("UR: mining, power and services (Level 2)", False)
         ur_level2_threshold, ur_level2_ge = num_ge("UR Level 2 threshold (%)", 10.0, "ur_l2")
 
     # 🔹 SP Level-2 🔹
-    with st.sidebar.expander("SP Level 2", False):
+    with st.sidebar.expander("SP:mining and power (Level 2)", False):
         sp_level2_checkbox = st.checkbox("SP: Apply Level 2", False)
         sp_level2_threshold, sp_level2_ge = num_ge("SP Level 2 threshold (%)", 10.0, "sp_l2")
 
