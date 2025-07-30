@@ -365,14 +365,14 @@ def main():
         ur_mixed_threshold, ur_mixed_ge = num_ge("UR Mixed threshold (%)", 25.0, "ur_mix")
 
     # 🔹 UR Level-2 🔹
-    with st.sidebar.expander("UR Level 2", False):
-        ur_level2_checkbox = st.checkbox("UR: mining, power and services (Level 2)", False)
-        ur_level2_threshold, ur_level2_ge = num_ge("UR Level 2 threshold (%)", 10.0, "ur_l2")
+    with st.sidebar.expander("UR: mining, power and services (Level 2)", False):
+        ur_level2_checkbox = st.checkbox("UR: mining, power and services", False)
+        ur_level2_threshold, ur_level2_ge = num_ge("Revenue threshold (%)", 10.0, "ur_l2")
 
     # 🔹 SP Level-2 🔹
     with st.sidebar.expander("SP:mining and power (Level 2)", False):
-        sp_level2_checkbox = st.checkbox("SP: Apply Level 2", False)
-        sp_level2_threshold, sp_level2_ge = num_ge("SP Level 2 threshold (%)", 10.0, "sp_l2")
+        sp_level2_checkbox = st.checkbox("SP:mining and power", False)
+        sp_level2_threshold, sp_level2_ge = num_ge("Revenue threshold (%)", 10.0, "sp_l2")
 
     # 🔹 expansion 🔹
     with st.sidebar.expander("Exclude expansions", False):
